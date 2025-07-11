@@ -8,6 +8,7 @@
     [reitit.ring.coercion :as coercion]
     [reitit.ring.middleware.muuntaja :as muuntaja]
     [reitit.ring.middleware.parameters :as parameters]
+    [clojure.tools.logging :as log]
     [reitit.swagger :as swagger]))
 
 (def route-data
@@ -30,9 +31,8 @@
                 coercion/coerce-request-middleware
                   ;; exception handling
                 exception/wrap-exception]})
-
 ;; Routes
-(defn api-routes [_opts]
+(defn api-routes [opts]
   [["/swagger.json"
     {:get {:no-doc  true
            :swagger {:info {:title "org.mushin API"}}
@@ -41,7 +41,9 @@
     ;; note that use of the var is necessary
     ;; for reitit to reload routes without
     ;; restarting the system
-    {:get #'health/healthcheck!}]])
+    {:get #'health/healthcheck!}]
+   ["/status"
+    {:get {:handler (partial health/db-status opts)}}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

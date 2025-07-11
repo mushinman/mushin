@@ -47,7 +47,8 @@
  :reitit.routes/api
  {:base-path "/api"
   :env       #ig/ref :system/env
-  :metrics   #ig/ref :metrics/prometheus}
+  :metrics   #ig/ref :metrics/prometheus
+  :xtdb-node #ig/ref :db.xtdb/node}
 
  :router/routes
  {:routes #ig/refset :reitit/routes}
@@ -57,4 +58,17 @@
   :env #ig/ref :system/env} 
 
  :cronut/scheduler
- {:schedule []} }
+ {:schedule []}
+
+ ;; resources/system.edn
+ :db.xtdb/node
+ {:log
+  ;; persistent transaction-log under data/xtdb/log
+  [:local
+   {:path "data/xtdb/log"}]
+
+  :storage
+  ;; persistent object store under data/xtdb/objects
+  [:local
+   {:path "data/xtdb/objects"}]}
+ }

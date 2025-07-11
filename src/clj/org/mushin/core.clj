@@ -12,6 +12,7 @@
    [kit.edge.utils.metrics] 
    [kit.edge.server.undertow]
    [org.mushin.web.handler]
+   [org.mushin.xtdb]
 
     ;; Routes
    [org.mushin.web.routes.api])
