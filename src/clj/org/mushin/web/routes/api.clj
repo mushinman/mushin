@@ -43,7 +43,9 @@
     ;; restarting the system
     {:get #'health/healthcheck!}]
    ["/status"
-    {:get {:handler (partial health/db-status opts)}}]])
+    {:get {:handler (partial health/db-status opts)}}]
+   ["/status-q"
+    {:get {:handler (partial health/dq-texas opts)}}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

@@ -10,7 +10,6 @@
   [_   ;; the key
    cfg] ;; the map you put in system.edn
   ;; node/->config will fill in defaults, compactor, etc.
-  (log/info "============Starting up XTDB !!! ==============")
   (node/start-node (node/->config cfg)))
 
 ;; Integrant halt for graceful shutdown
