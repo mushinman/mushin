@@ -45,7 +45,11 @@
    ["/status"
     {:get {:handler (partial health/db-status opts)}}]
    ["/status-q"
-    {:get {:handler (partial health/dq-texas opts)}}]])
+    {:get {:handler (partial health/dq-texas opts)}}]
+   ["/patch-test"
+    {:get {:handler (partial health/dbq-patch opts)}}]
+   ["/patch-test2"
+    {:get {:handler (partial health/dbq-patch-incomplete opts)}}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

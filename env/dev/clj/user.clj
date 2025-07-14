@@ -11,9 +11,18 @@
     [integrant.repl.state :as state]
     [kit.api :as kit]
     [lambdaisland.classpath.watch-deps :as watch-deps]      ;; hot loading for deps
-    [org.mushin.core :refer [start-app]]))
+    [org.mushin.core :refer [start-app]]
+    [malli.util :as mallu]
+    [malli.registry :as mallr]
+    [malli.core :as mallc]
+    [xtdb.api :as xt]
+    [xtd.node :as xn]
+    [java-time.api :as jt]
+    [integrant.repl.state :as istate]))
 
 ;; uncomment to enable hot loading for deps
+
+
 (watch-deps/start! {:aliases [:dev :test]})
 
 (alter-var-root #'s/*explain-out* (constantly expound/printer))
