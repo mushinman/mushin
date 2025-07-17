@@ -16,7 +16,7 @@
     [malli.registry :as mallr]
     [malli.core :as mallc]
     [xtdb.api :as xt]
-    [xtd.node :as xn]
+    [xtdb.node :as xn]
     [java-time.api :as jt]
     [integrant.repl.state :as istate]))
 

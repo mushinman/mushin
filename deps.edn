@@ -27,6 +27,8 @@
 
            clojure.java-time/clojure.java-time {:mvn/version "1.4.3"}
 
+           com.fluree/json-ld {:mvn/version "1.0.1"}
+
            metosin/malli {:mvn/version "0.19.1"}
 
            ;; kit Libs
