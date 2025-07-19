@@ -1,6 +1,7 @@
 (ns org.mushin.web.routes.api
   (:require
     [org.mushin.web.controllers.health :as health]
+    [org.mushin.web.controllers.auth :as auth-handlers]
     [org.mushin.web.middleware.exception :as exception]
     [org.mushin.web.middleware.formats :as formats]
     [integrant.core :as ig]
@@ -53,7 +54,8 @@
     {:get {:handler (partial health/dbq-patch-incomplete opts)}}]
    ["/auth-test"
     {:get  {:handler (partial health/auth-test-post opts)
-            :middleware [(partial auth/wrap-authenticate-user opts)]}}]])
+            :middleware [(partial auth/wrap-authenticate-user opts)]}}]
+   ["/login" {:handler (partial auth-handlers/login opts)}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

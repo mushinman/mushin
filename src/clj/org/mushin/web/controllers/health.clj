@@ -24,9 +24,9 @@
   (try
     (db-utils/submit-tx xtdb-node [[:put-docs :mushin.db/users
                                     {:xt/id (random-uuid)
-                                     :email "baby@gravy.com"
+                                     :email "baby@gravy2.com"
                                      :password-hash (bhash/derive "@test" {:alg :argon2id})
-                                     :nickname "babygravy"
+                                     :nickname "tester"
                                      :joined-at (jt/zoned-date-time)
                                      :last-logged-in-at (jt/zoned-date-time)}]])
     (ok "Success!!!!!")
