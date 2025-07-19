@@ -72,6 +72,7 @@
       (log/error "Got an error: " ex)
       (internal-server-error "Some sort of error"))))
 
-(defn auth-test-post [{:keys [xtdb-node]} req]
+(defn auth-test-post [{:keys [xtdb-node]}
+                      {:keys [user-id] :as req}]
   (log/info "It worked!!!")
-  (ok {:message "Okay!!!"}))
+  (ok {:message (str "User id " user-id)}))

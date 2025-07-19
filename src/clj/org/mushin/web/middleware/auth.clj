@@ -41,10 +41,11 @@
     (when (some nil? creds)
       (invalid-auth! {:error "invalid_basic" :message "the provided basic authorization header was not in the standard user:password format"}))
 
-    (let [password-hash (:password-hash (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [{:nickname ~username} password-hash])
-                                                                                (limit 1))))))]
-      (when-not (and password-hash (:valid (bhash/verify password-attempt password-hash)))
-        (failed-auth! {:error "wrong_username_or_password" :message "the provided username or password is incorrect"})))))
+    (let [{:keys [password-hash xt/id]} (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [{:nickname ~username} password-hash xt/id])
+                                                                                (limit 1)))))]
+      (if-not (and password-hash (:valid (bhash/verify password-attempt password-hash)))
+        (failed-auth! {:error "wrong_username_or_password" :message "the provided username or password is incorrect"})
+        {:user-id id}))))
 
 (defn wrap-authenticate-user [{:keys [xtdb-node]} handler]
   (fn [{:keys [headers] :as req}]
@@ -52,8 +53,10 @@
       (failed-auth! {:error "missing authorization"
                      :message "please authentication using one of our supported schemas"})
       (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")]
-        (cond
-          (utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
-          (utils/icase-comp auth-type "Basic") (check-basic-auth auth-arg xtdb-node)
-          :else (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
-        (handler req)))))
+        (->
+         (cond
+           (utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
+           (utils/icase-comp auth-type "Basic") (check-basic-auth auth-arg xtdb-node)
+           :else (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
+         (merge req)
+         (handler))))))
