@@ -2,7 +2,6 @@
   (:require
    [ring.util.http-response :refer [unauthorized! bad-request!]]
    [ring.util.codec :as ring-codec]
-   [clojure.tools.logging :as log]
    [xtdb.api :as xt]
    [org.mushin.utils :as utils]
    [clojure.string :as cstr]
@@ -25,8 +24,11 @@
   (-> (bad-request! body)
       (assoc :headers (challenge-headers))))
 
-(defn check-bearer [auth xtdb-node]
-  false)
+;; TODO probably have multiple ways to store the tokens, e.g. db, in-memory, some external service etc..
+(defn check-bearer [auth-arg xtdb-node]
+  (when-not auth-arg
+    (invalid-auth! {:error "invalid_basic" :message "the provided bearer authorization header had no credentials"})))
+
 
 (defn check-basic-auth [auth-arg xtdb-node]
   (when-not auth-arg

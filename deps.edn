@@ -25,6 +25,8 @@
            com.xtdb/xtdb-core              {:mvn/version "2.0.0"}
            com.xtdb/xtdb-api               {:mvn/version "2.0.0"}
 
+           ;; Auth, signing, security.
+           buddy/buddy-core {:mvn/version "1.12.0-430"}
            buddy/buddy-sign {:mvn/version "3.6.1-359"}
            buddy/buddy-hashers {:mvn/version "2.0.167"}
 
