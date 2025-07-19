@@ -4,6 +4,7 @@
     [org.mushin.web.middleware.exception :as exception]
     [org.mushin.web.middleware.formats :as formats]
     [integrant.core :as ig]
+    [org.mushin.web.middleware.auth :as auth]
     [reitit.coercion.malli :as malli]
     [reitit.ring.coercion :as coercion]
     [reitit.ring.middleware.muuntaja :as muuntaja]
@@ -49,7 +50,10 @@
    ["/patch-test"
     {:get {:handler (partial health/dbq-patch opts)}}]
    ["/patch-test2"
-    {:get {:handler (partial health/dbq-patch-incomplete opts)}}]])
+    {:get {:handler (partial health/dbq-patch-incomplete opts)}}]
+   ["/auth-test"
+    {:get  {:handler (partial health/auth-test-post opts)
+            :middleware [(partial auth/wrap-authenticate-user opts)]}}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

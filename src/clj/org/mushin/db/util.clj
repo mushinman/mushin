@@ -74,7 +74,6 @@
                [k (symbol (str/replace (str k) #"^:" "\\$"))]))
         ks))
 
-
 (defn lookup-by-id [node table id]
   (let [query (xt/template
                (-> (from ~table [* {:xt/id ~id}])

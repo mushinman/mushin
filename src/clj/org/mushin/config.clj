@@ -7,7 +7,7 @@
    [malli.core :as mallc]
    [malli.util :as mallu]
    [malli.experimental.time :as malt]
-   [org.mushin.db.users :as users]))
+   [org.mushin.schema.db.users :as users]))
 
 (defonce schema-store (atom {}))
 

@@ -5,6 +5,7 @@
    [org.mushin.db.util :as db-utils]
    [java-time.api :as jt]
    [org.mushin.utils :refer :all]
+   [buddy.hashers :as bhash]
    [xtdb.api :as xt])
   (:import
    [java.util Date]))
@@ -24,6 +25,8 @@
     (db-utils/submit-tx xtdb-node [[:put-docs :mushin.db/users
                                     {:xt/id (random-uuid)
                                      :email "baby@gravy.com"
+                                     :password-hash (bhash/derive "@test" {:alg :argon2id})
+                                     :nickname "babygravy"
                                      :joined-at (jt/zoned-date-time)
                                      :last-logged-in-at (jt/zoned-date-time)}]])
     (ok "Success!!!!!")
@@ -68,3 +71,7 @@
     (catch Exception ex
       (log/error "Got an error: " ex)
       (internal-server-error "Some sort of error"))))
+
+(defn auth-test-post [{:keys [xtdb-node]} req]
+  (log/info "It worked!!!")
+  (ok {:message "Okay!!!"}))
