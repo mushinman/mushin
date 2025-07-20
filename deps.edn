@@ -15,6 +15,7 @@
 
            ;; Logging
            ch.qos.logback/logback-classic  {:mvn/version "1.5.16"}
+           net.logstash.logback/logstash-logback-encoder {:mvn/version "7.4"}
 
            ;; Data coercion
            luminus-transit/luminus-transit {:mvn/version "0.1.6"

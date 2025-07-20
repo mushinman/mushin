@@ -4,8 +4,8 @@
    [clojure.tools.logging :as log]
    [org.mushin.db.util :as db-utils]
    [java-time.api :as jt]
+   [org.mushin.crypt.password :as mushin-crypt]
    [org.mushin.utils :refer :all]
-   [buddy.hashers :as bhash]
    [xtdb.api :as xt])
   (:import
    [java.util Date]))
@@ -25,7 +25,7 @@
     (db-utils/submit-tx xtdb-node [[:put-docs :mushin.db/users
                                     {:xt/id (random-uuid)
                                      :email "baby@gravy2.com"
-                                     :password-hash (bhash/derive "@test" {:alg :argon2id})
+                                     :password-hash (mushin-crypt/hash-password "@test")
                                      :nickname "tester"
                                      :joined-at (jt/zoned-date-time)
                                      :last-logged-in-at (jt/zoned-date-time)}]])

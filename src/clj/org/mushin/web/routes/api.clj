@@ -10,7 +10,7 @@
     [reitit.ring.coercion :as coercion]
     [reitit.ring.middleware.muuntaja :as muuntaja]
     [reitit.ring.middleware.parameters :as parameters]
-    [clojure.tools.logging :as log]
+    [org.mushin.web.controllers.accounts :as accounts]
     [reitit.swagger :as swagger]))
 
 (def route-data
@@ -55,7 +55,10 @@
    ["/auth-test"
     {:get  {:handler (partial health/auth-test-post opts)
             :middleware [(partial auth/wrap-authenticate-user opts)]}}]
-   ["/login" {:handler (partial auth-handlers/login opts)}]])
+   ["/login" {:handler (partial auth-handlers/login opts)}]
+   ["/create-account"
+    {:post {:handler (partial accounts/create-account-post opts)
+            :parameters {:body accounts/create-account-body}}}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

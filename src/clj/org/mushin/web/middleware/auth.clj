@@ -12,8 +12,6 @@
   (when-not auth-arg
     (invalid-auth! {:error "invalid_basic" :message "the provided bearer authorization header had no credentials"})))
 
-
-
 (defn wrap-authenticate-user [{:keys [xtdb-node]} handler]
   (fn [{:keys [headers] :as req}]
     (if (nil? (get headers "authorization"))

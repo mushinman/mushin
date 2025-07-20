@@ -80,6 +80,14 @@
                    (limit 1)))]
     (first (xt/q node query))))
 
+(defn record-exists? [node table id]
+  (boolean (first (xt/q node (xt/template
+                              (-> (from ~table [{:xt/id ~id}])
+                                  (limit 1)))))))
+
+;; TODO this is bad. We should just check to see if the document exists
+;; and reject tx if it's an insert. If it's an update, we'll check against the schema
+;; but ignore missing parts of the doc.
 (defmethod compile-op :patch-docs
   [node [_ table-or-opts & docs :as op]]
   ;; If the patch operation is an UPDATE: we can be sure that the document
