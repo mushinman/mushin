@@ -12,7 +12,7 @@
    ; TODO recapcha
    ])
 
-(defn create-account-post
+(defn create-account-post!
   [{:keys [xtdb-node]}
    {{{:keys [nickname password]} :body} :parameters}]
   (when (db-users/check-user-exists-by-name? xtdb-node nickname)

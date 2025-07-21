@@ -37,7 +37,6 @@
 (defn dq-texas
   [{:keys [xtdb-node] :as opts}
    {:keys [params] :as req}]
-  (println "@@@@@@@")
   (try
     (ok (xt/q xtdb-node '(-> (from :mushin.db/users [{:xt/id user-id, :email email-address, :joined-at joined}])
                              (where (= email-address "baby@gravy.com")))))

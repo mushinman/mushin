@@ -11,6 +11,7 @@
     [reitit.ring.middleware.muuntaja :as muuntaja]
     [reitit.ring.middleware.parameters :as parameters]
     [org.mushin.web.controllers.accounts :as accounts]
+    [org.mushin.web.controllers.statuses :as statuses]
     [reitit.swagger :as swagger]))
 
 (def route-data
@@ -57,8 +58,14 @@
             :middleware [(partial auth/wrap-authenticate-user opts)]}}]
    ["/login" {:handler (partial auth-handlers/login opts)}]
    ["/create-account"
-    {:post {:handler (partial accounts/create-account-post opts)
-            :parameters {:body accounts/create-account-body}}}]])
+    {:post {:handler (partial accounts/create-account-post! opts)
+            :parameters {:body accounts/create-account-body}}}]
+   ;["/create-picture" {:handler (partial statuses/create-picture-post! opts)
+   ;                    :middleware [(partial auth/wrap-authenticate-user opts)]
+   ;                    :parameters {:body statuses/create-picture-post-body}}]
+   ["/create-text-post" {:handler (partial statuses/create-text-post! opts)
+                         :middleware [(partial auth/wrap-authenticate-user opts)]
+                         :parameters {:body statuses/create-text-post-body}}]])
 
 (derive :reitit.routes/api :reitit/routes)
 

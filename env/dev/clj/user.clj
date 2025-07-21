@@ -14,6 +14,9 @@
     [org.mushin.core :refer [start-app]]))
 
 ;; uncomment to enable hot loading for deps
+;;
+
+(def dev-xtdb-node (:xtdb-node state/system))
 
 
 (watch-deps/start! {:aliases [:dev :test]})
