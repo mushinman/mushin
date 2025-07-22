@@ -2,7 +2,24 @@
   (:require [xtdb.api :as xt]
             [org.mushin.db.util :as db-util]
             [org.mushin.crypt.password :as crypt]
-            [java-time.api :as jt]))
+            [java-time.api :as jt]
+            [malli.experimental.time :as mallt]))
+
+(def nickname-schema
+  [:nickname  [:and [:string {:min 1 :max 32}] [:re #"\w+"]]])
+
+(def user-schema
+  {::tiny-string  [:string {:min 1 :max 32}]
+   ::short-string [:string {:min 1 :max 256}]
+   ::long-string  [:string {:min 1 :max 4096}]
+
+   :mushin.db/users [:map
+                     [:xt/id     :uuid]
+                     [:email  {:optional true}  [:and ::short-string [:re #".+@.+"]]]
+                     nickname-schema
+                     [:password-hash :string]
+                     [:joined-at (mallt/-zoned-date-time-schema)]
+                     [:last-logged-in-at (mallt/-zoned-date-time-schema)]]})
 
 
 (defn check-user-exists? [node user-id]

@@ -1,4 +1,4 @@
-(ns org.mushin.schema.db.auth
+(ns org.mushin.db.auth
   (:require [malli.experimental.time :as mallt]
             [buddy.core.nonce :as nonce]
             [java-time.api :as jt]

@@ -1,5 +1,5 @@
 (ns org.mushin.web.controllers.accounts
-  (:require [org.mushin.schema.users :as user-schemas]
+  (:require
             [org.mushin.db.users :as db-users]
             [ring.util.http-response :refer [conflict! created]]
             [clojure.tools.logging :as log]))
@@ -8,7 +8,7 @@
   [:map
    [:email {:optional true} [:and :string [:re #".+@.+"]]]
    [:password [:string {:min 8 :max 128}]]
-   user-schemas/user-schema
+   db-users/user-schema
    ; TODO recapcha
    ])
 

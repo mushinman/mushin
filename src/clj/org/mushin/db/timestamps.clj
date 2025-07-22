@@ -1,4 +1,4 @@
-(ns org.mushin.schema.db.timestamps
+(ns org.mushin.db.timestamps
   (:require [malli.experimental.time :as mallt]))
 
 (def created-at

@@ -1,8 +1,6 @@
 (ns org.mushin.web.controllers.statuses
-  (:require [ring.util.http-response :refer [unauthorized!]]
-            [org.mushin.schema.statuses :as schema]
+  (:require [ring.util.http-response :refer [unauthorized! created]]
             [org.mushin.db.statuses :as db]
-            [ring.util.http-response :refer [created]]
             [clojure.tools.logging :as log]
             [org.mushin.db.resources :as resources])
   (:import [java.nio.file Files]))

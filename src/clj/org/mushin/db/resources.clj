@@ -3,11 +3,29 @@
             [clojure.java.io :as io]
             [org.mushin.db.util :as db]
             [java-time.api :as jt]
+            [org.mushin.db.timestamps :as timestamps]
             [clojure.string :as cstr]
             [xtdb.api :as xt])
-  (:import [java.nio.file Files StandardCopyOption Paths]))
+  (:import [java.nio.file Files StandardCopyOption Paths]
+           [java.net URI]))
 
 ;; TODO make the resources folder location configurable in some way.
+
+(defn valid-uri? [s]
+  (try
+    (URI. s)
+    true
+    (catch Exception _
+      false)))
+
+(def resources-schema
+  {:mushin.db/resources
+   [:map {:closed true}
+    [:xt/id      :uuid]
+    timestamps/created-at
+    [:checksum    :string]
+    [:mime-type  :string]
+    [:location   [:and :string [:fn valid-uri?]]]]})
 
 (defn- get-resource-file-path [file-name]
   (Paths/get "content" (into-array String [(subs file-name 0 2) (subs file-name 2 4) (subs file-name 4 6) file-name])))

@@ -1,15 +1,12 @@
 (ns org.mushin.config
   (:require
    [kit.config :as config]
-   [clojure.tools.logging :as log]
    [malli.registry :as mallr]
-   [org.mushin.utils :refer [concat-kw]]
    [malli.core :as mallc]
-   [malli.util :as mallu]
    [malli.experimental.time :as malt]
-   [org.mushin.schema.db.users :as users]
-   [org.mushin.schema.db.resources :as resources]
-   [org.mushin.schema.db.statuses :as statuses]))
+   [org.mushin.db.users :as users]
+   [org.mushin.db.resources :as resources]
+   [org.mushin.db.statuses :as statuses]))
 
 (defonce schema-store (atom {}))
 
@@ -23,7 +20,7 @@
 (defn init-db-malli!
   "Adds database schemas to the malli registry."
   []
-  (let [all-schemas (merge users/schema statuses/statuses-schema resources/resources-schema)]
+  (let [all-schemas (merge users/user-schema statuses/statuses-schema resources/resources-schema)]
     ;; Add our DB schemas.
     (mallr/set-default-registry!
      (mallr/composite-registry (mallc/default-schemas) (malt/schemas) all-schemas (mallr/mutable-registry schema-store)))))
