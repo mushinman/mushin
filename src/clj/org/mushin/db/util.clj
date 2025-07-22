@@ -11,12 +11,6 @@
 (defn- fail [& args]
   (throw (ex-info "Unsupported operation." {})))
 
-(def mushin-tx-fns
-  '{:mushin/if-exists (fn [[query query-args] true-branch false-branch]
-                      (if (not-empty (q query {:args query-args}))
-                        true-branch
-                        false-branch))})
-
 (def ^:private xtdb-node?
   [:fn #(instance? Xtdb %)])
 
@@ -67,12 +61,6 @@
 (defmethod compile-op :default
   [[:as op]]
   [op])
-
-(defn- bind-template [ks]
-  (into {}
-        (map (fn [k]
-               [k (symbol (str/replace (str k) #"^:" "\\$"))]))
-        ks))
 
 (defn lookup-by-id [node table id]
   (let [query (xt/template
@@ -132,30 +120,29 @@
   (check-arity (even? (count kvs)) (+ (count kvs) 2) fn-name)
   (check-args node xtdb-node? table :keyword))
 
-(defn lookup-id [node table & kvs]
-  (check-lookup-args "lookup-id" node table kvs)
-  (let [args (apply hash-map kvs)
-        query (xt/template
-               (-> (from ~table [xt/id ~(bind-template (keys args))])
-                   (limit 1)))]
-    (-> (xt/q node query {:args args}) first :xt/id)))
+(defn lookup-by-id [node table id]
+  (first (xt/q node (xt/template (-> (from ~table [* {:xt/id ~id}])
+                                     (limit 1))))))
 
-(defn lookup-id-all [node table & kvs]
-  (check-lookup-args "lookup-id-all" node table kvs)
-  (let [args (apply hash-map kvs)
-        query (xt/template (from ~table [xt/id ~(bind-template (keys args))]))]
-    (mapv :xt/id (xt/q node query {:args args}))))
+(defn lookup-id [node table qs]
+  (-> (xt/q node (xt/template (-> (from ~table [xt/id ~qs])
+                                  (limit 1))))
+      first
+      :xt/id))
 
-(defn lookup [node table & kvs]
-  (check-lookup-args "lookup" node table kvs)
-  (let [args (apply hash-map kvs)
-        query (xt/template
-               (-> (from ~table [* ~(bind-template (keys args))])
-                   (limit 1)))]
-    (first (xt/q node query {:args args}))))
+(defn lookup-ids [node table qs]
+  (map :xt/id (xt/q node (xt/template (from ~table [xt/id ~qs])))))
 
-(defn lookup-all [node table & kvs]
-  (check-lookup-args "lookup-all" node table kvs)
-  (let [args (apply hash-map kvs)
-        query (xt/template (from ~table [* ~(bind-template (keys args))]))]
-    (xt/q node query {:args args})))
+(defn lookup-everything [node table]
+  (xt/q node (xt/template (from ~table [*]))))
+
+(defn lookup [node table cols qs]
+  (xt/q node (xt/template (from ~table [~@cols ~qs]))))
+
+(defn lookup-first [node table cols qs]
+  (first (xt/q node (xt/template (-> (from ~table [~@cols ~qs])
+                                     (limit 1))))))
+(defn lookup-exists-any? [node table qs]
+  (boolean (first (xt/q node
+                        (xt/template (-> (from ~table [~qs])
+                                         (limit 1)))))))
