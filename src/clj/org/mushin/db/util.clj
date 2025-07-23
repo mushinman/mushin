@@ -14,24 +14,6 @@
 (def ^:private xtdb-node?
   [:fn #(instance? Xtdb %)])
 
-(defn check-attr-schema [attr schema value]
-  (when-not (malli/validate schema value)
-    (throw (ex-info "Value doesn't match attribute schema"
-                    {:attr attr
-                     :schema schema
-                     :value value
-                     :errors (:errors (malli/explain schema value))}))))
-
-(defn check-table-schema [table document]
-  (when-not (malli/validate table document)
-    (throw (ex-info "Document doesn't match table schema"
-                    {:table table
-                     :document document
-                     :errors (:errors (malli/explain table document))}))))
-
-(defn -malli-wrap [{:keys [value message] :as error}]
-  (str "Invalid argument `" (pr-str value) "`: " message))
-
 (defn check-args* [& arg-maps]
   (doseq [{:keys [value schema quoted-schema]} arg-maps
           :when (not (malli/validate schema value))]
@@ -53,6 +35,59 @@
   `(when-not ~valid
      (throw (clojure.lang.ArityException. ~n-args ~fn-name))))
 
+(defn- check-lookup-args [fn-name node table kvs]
+  (check-arity (even? (count kvs)) (+ (count kvs) 2) fn-name)
+  (check-args node xtdb-node? table :keyword))
+
+(defn lookup-by-id [node table id]
+  (first (xt/q node (xt/template (-> (from ~table [* {:xt/id ~id}])
+                                     (limit 1))))))
+
+(defn lookup-id [node table qs]
+  (-> (xt/q node (xt/template (-> (from ~table [xt/id ~qs])
+                                  (limit 1))))
+      first
+      :xt/id))
+
+(defn lookup-ids
+  [node table qs]
+  (map :xt/id (xt/q node
+                    (xt/template (from ~table [xt/id ~qs])))))
+
+(defn lookup-everything [node table]
+  (xt/q node (xt/template (from ~table [*]))))
+
+(defn lookup [node table cols qs]
+  (xt/q node (xt/template (from ~table [~@cols ~qs]))))
+
+(defn lookup-first [node table cols qs]
+  (first (xt/q node (xt/template (-> (from ~table [~@cols ~qs])
+                                     (limit 1))))))
+
+(defn lookup-exists-any? [node table qs]
+  (boolean (first (xt/q node
+                        (xt/template (-> (from ~table [~qs])
+                                         (limit 1)))))))
+
+(defn check-attr-schema [attr schema value]
+  (when-not (malli/validate schema value)
+    (throw (ex-info "Value doesn't match attribute schema"
+                    {:attr attr
+                     :schema schema
+                     :value value
+                     :errors (:errors (malli/explain schema value))}))))
+
+(defn check-table-schema [table document]
+  (when-not (malli/validate table document)
+    (throw (ex-info "Document doesn't match table schema"
+                    {:table table
+                     :document document
+                     :errors (:errors (malli/explain table document))}))))
+
+(defn -malli-wrap [{:keys [value message] :as error}]
+  (str "Invalid argument `" (pr-str value) "`: " message))
+
+
 (defn compile-op-dispatch [node op]
   (first op))
 
@@ -62,11 +97,6 @@
   [[:as op]]
   [op])
 
-(defn lookup-by-id [node table id]
-  (let [query (xt/template
-               (-> (from ~table [* {:xt/id ~id}])
-                   (limit 1)))]
-    (first (xt/q node query))))
 
 (defn record-exists? [node table id]
   (boolean (first (xt/q node (xt/template
@@ -115,34 +145,3 @@
 
 (defn execute-tx [node local-tx]
   (xt/execute-tx node (compile-tx node local-tx)))
-
-(defn- check-lookup-args [fn-name node table kvs]
-  (check-arity (even? (count kvs)) (+ (count kvs) 2) fn-name)
-  (check-args node xtdb-node? table :keyword))
-
-(defn lookup-by-id [node table id]
-  (first (xt/q node (xt/template (-> (from ~table [* {:xt/id ~id}])
-                                     (limit 1))))))
-
-(defn lookup-id [node table qs]
-  (-> (xt/q node (xt/template (-> (from ~table [xt/id ~qs])
-                                  (limit 1))))
-      first
-      :xt/id))
-
-(defn lookup-ids [node table qs]
-  (map :xt/id (xt/q node (xt/template (from ~table [xt/id ~qs])))))
-
-(defn lookup-everything [node table]
-  (xt/q node (xt/template (from ~table [*]))))
-
-(defn lookup [node table cols qs]
-  (xt/q node (xt/template (from ~table [~@cols ~qs]))))
-
-(defn lookup-first [node table cols qs]
-  (first (xt/q node (xt/template (-> (from ~table [~@cols ~qs])
-                                     (limit 1))))))
-(defn lookup-exists-any? [node table qs]
-  (boolean (first (xt/q node
-                        (xt/template (-> (from ~table [~qs])
-                                         (limit 1)))))))
