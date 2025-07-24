@@ -16,7 +16,7 @@
 ;; uncomment to enable hot loading for deps
 ;;
 
-(def dev-xtdb-node (:xtdb-node state/system))
+(defn dev-xtdb-node [] (:db.xtdb/node state/system))
 
 
 (watch-deps/start! {:aliases [:dev :test]})

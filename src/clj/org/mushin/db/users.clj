@@ -6,7 +6,7 @@
             [malli.experimental.time :as mallt]))
 
 (def nickname-schema
-  [:nickname  [:and [:string {:min 1 :max 32}] [:re #"\w+"]]])
+  [:nickname  [:and [:and [:string {:min 1 :max 32}] [:re #"\w+"]]]])
 
 (def user-schema
   {::tiny-string  [:string {:min 1 :max 32}]
@@ -16,25 +16,31 @@
    :mushin.db/users [:map
                      [:xt/id     :uuid]
                      [:email  {:optional true}  [:and ::short-string [:re #".+@.+"]]]
-                     nickname-schema
+                     [:nickname :string]
                      [:password-hash :string]
                      [:joined-at (mallt/-zoned-date-time-schema)]
                      [:last-logged-in-at (mallt/-zoned-date-time-schema)]]})
 
+(defn get-user-by-id
+  ([xtdb-node id] (db-util/lookup-by-id xtdb-node :mushin.db/users id))
+  ([xtdb-node cols id] (db-util/lookup-first xtdb-node :mushin.db/users cols {:xt/id id})))
 
-(defn check-user-exists? [node user-id]
-  (db-util/record-exists? node :mushin.db/users user-id))
+(defn check-user-id-exists? [xtdb-node user-id]
+  (db-util/record-exists? xtdb-node :mushin.db/users user-id))
 
-(defn get-user-by-name [node nickname]
-  (first (xt/q node (xt/template
-                     (-> (from :mushin.db/users [* {:nickname ~nickname}])
-                         (limit 1))))))
+(defn check-user-nickname-exists? [xtdb-node nickname]
+  (db-util/lookup-exists-any? xtdb-node :mushin.db/users {:nickname nickname}))
 
-(defn check-user-exists-by-name? [node nickname]
-  (boolean (first (xt/q node (xt/template
-                              (-> (from :mushin.db/users [{:nickname ~nickname}])
-                                  (limit 1)))))))
+(defn get-user-by-name
+  ([xtdb-node nickname] (get-user-by-name xtdb-node '[*] nickname))
+  ([xtdb-node cols nickname] (db-util/lookup-first xtdb-node :mushin.db/users cols {:nickname nickname})))
 
+(defn get-user-id-by-nickname
+  [xtdb-node nickname]
+  (-> (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [xt/id {:nickname ~nickname}])
+                                   (limit 1))))
+      first
+      :xt/id))
 
 (defn create-user [xtdb-node nickname password & email]
   (let [now (jt/zoned-date-time)
@@ -47,4 +53,5 @@
                         [[:put-docs :mushin.db/users
                           (if email
                             (assoc doc :email email)
-                            doc)]])))
+                            doc)]])
+    doc))

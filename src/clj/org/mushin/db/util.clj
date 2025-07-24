@@ -39,9 +39,12 @@
   (check-arity (even? (count kvs)) (+ (count kvs) 2) fn-name)
   (check-args node xtdb-node? table :keyword))
 
-(defn lookup-by-id [node table id]
-  (first (xt/q node (xt/template (-> (from ~table [* {:xt/id ~id}])
-                                     (limit 1))))))
+(defn lookup-by-id
+  ([node table cols id]
+   (first (xt/q node (xt/template (-> (from ~table [~@cols {:xt/id ~id}])
+                                      (limit 1))))))
+  ([node table id]
+   (lookup-by-id node table '[*] id)))
 
 (defn lookup-id [node table qs]
   (-> (xt/q node (xt/template (-> (from ~table [xt/id ~qs])
