@@ -26,8 +26,9 @@
 
 (defn get-timeline
   [{:keys [xtdb-node]}
-   {{:keys [nickname]} :path-params :keys [user-id query-params]}]
+   {{:keys [nickname]} :path-params {:keys [user-id]} :session :keys [query-params]}]
   ;; TODO check if the sessioned user is able to see this post.
+  (log/debug "THIS WAS RAN")
   (let [user-id (or (user-db/get-user-id-by-nickname xtdb-node nickname)
                     (not-found! {:error "user_not_found" :message "A user by that nickname was not found"}))
         db-offset (or (:offset query-params) 0)
@@ -50,7 +51,7 @@
 
 (defn create-text-post!
   [{:keys [xtdb-node]}
-   {{{:keys [text]} :body} :parameters :keys [user-id] :as req}]
+   {{{:keys [text]} :body} :parameters {:keys [user-id]} :session :as req}]
   (log/info "Creating text pos!!!!" req)
   (when-not user-id
     (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
@@ -59,7 +60,7 @@
 
 (defn create-picture-post!
   [{:keys [xtdb-node]}
-   {{{{:keys [image]} :status} :body} :parameters :keys [user-id]}]
+   {{{{:keys [image]} :status} :body} :parameters {:keys [user-id]} :session}]
   (when-not user-id
     (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
   (let [{:keys [tempfile filename]} image

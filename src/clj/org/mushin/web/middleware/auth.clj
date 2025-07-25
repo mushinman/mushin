@@ -13,15 +13,18 @@
     (invalid-auth! {:error "invalid_basic" :message "the provided bearer authorization header had no credentials"})))
 
 (defn wrap-authenticate-user [{:keys [xtdb-node]} handler]
-  (fn [{:keys [headers] :as req}]
-    (if (nil? (get headers "authorization"))
-      (failed-auth! {:error "missing authorization"
-                     :message "please authenticate using one of our supported schemas"})
-      (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")]
-        (->
-         (cond
-           ;(utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
-           (utils/icase-comp auth-type "Basic") (check-basic-auth! auth-arg xtdb-node)
-           :else (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
-         (merge req)
-         (handler))))))
+  (fn [{{:keys [user-id]} :session :keys [headers] :as req}]
+    (-> (or
+         (when user-id
+           req)
+         (if (nil? (get headers "authorization"))
+           (failed-auth! {:error "missing authorization"
+                          :message "please authenticate using one of our supported schemas"})
+           (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")]
+             (->
+              (cond
+                                        ;(utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
+                (utils/icase-comp auth-type "Basic") (check-basic-auth! auth-arg xtdb-node)
+                :else (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
+              (merge req)))))
+        (handler))))

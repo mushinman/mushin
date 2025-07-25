@@ -4,5 +4,5 @@
 
 (defn user-get-by-uuid
   [{:keys [xtdb-node]}
-   {{{:keys [requested-user-id]} :body} :parameters :keys [user-id]}]
+   {{{:keys [requested-user-id]} :body} :parameters {:keys [user-id]} :session}]
   (db/get-user-by-id xtdb-node requested-user-id))

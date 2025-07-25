@@ -56,7 +56,7 @@
    ["/auth-test"
     {:get  {:handler (partial health/auth-test-post opts)
             :middleware [(partial auth/wrap-authenticate-user opts)]}}]
-   ["/login" {:handler (partial auth-handlers/login opts)}]
+   ["/login" {:handler (partial auth-handlers/login! opts)}]
    ["/create-account"
     {:post {:handler (partial accounts/create-account-post! opts)
             :parameters {:body accounts/create-account-body}}}]
