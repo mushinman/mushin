@@ -11,6 +11,7 @@
     [reitit.ring.middleware.muuntaja :as muuntaja]
     [reitit.ring.middleware.parameters :as parameters]
     [org.mushin.web.controllers.accounts :as accounts]
+    [ring.logger :as ring-logger]
     [org.mushin.web.controllers.statuses :as statuses]
     [reitit.swagger :as swagger]))
 
@@ -19,6 +20,8 @@
    :muuntaja   formats/instance
    :swagger    {:id ::api}
    :middleware [;; query-params & form-params
+                ring-logger/wrap-log-response
+                  ;; Logging
                 parameters/parameters-middleware
                   ;; content-negotiation
                 muuntaja/format-negotiate-middleware

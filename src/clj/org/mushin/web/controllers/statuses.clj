@@ -28,7 +28,6 @@
   [{:keys [xtdb-node]}
    {{:keys [nickname]} :path-params {:keys [user-id]} :session :keys [query-params]}]
   ;; TODO check if the sessioned user is able to see this post.
-  (log/debug "THIS WAS RAN")
   (let [user-id (or (user-db/get-user-id-by-nickname xtdb-node nickname)
                     (not-found! {:error "user_not_found" :message "A user by that nickname was not found"}))
         db-offset (or (:offset query-params) 0)
@@ -52,10 +51,10 @@
 (defn create-text-post!
   [{:keys [xtdb-node]}
    {{{:keys [text]} :body} :parameters {:keys [user-id]} :session :as req}]
-  (log/info "Creating text pos!!!!" req)
   (when-not user-id
     (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
   (let [{:keys [xt/id]} (db/create-status! xtdb-node {:text text} user-id)]
+    (log/info "Created text status" {:event :created-status :status-type :text :user-id user-id :content {:text text}})
     (created (str "/statuses/" id) {:status-id id})))
 
 (defn create-picture-post!
