@@ -14,3 +14,7 @@
       (->  (ok {:message "Logged in"})
            (assoc :session (assoc session :user-id (:user-id (check-basic-auth! auth-arg xtdb-node)))))
       (bad-request {:error "invalid_request" :message "Malformed authorization header"}))))
+
+
+(defn logout! [{:keys [session] :as req}]
+  (assoc req :session (dissoc session :user-id)))
