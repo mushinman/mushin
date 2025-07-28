@@ -71,12 +71,14 @@
    ;["/create-picture" {:handler (partial statuses/create-picture-post! opts)
    ;                    :middleware [(partial auth/wrap-authenticate-user opts)]
    ;                    :parameters {:body statuses/create-picture-post-body}}]
+
    ["/create-text-post" {:handler (partial statuses/create-text-post! opts)
                          :middleware [(partial auth/wrap-authenticate-user opts)]
                          :parameters {:body statuses/create-text-post-body}}]
+
    ["/statuses/s/:id" {:get  {:handler (partial statuses/get-status opts)
                               :middleware [(partial auth/wrap-authenticate-user opts)]
-                              :parameters {:query statuses/get-timeline-query
+                              :parameters {:query statuses/get-status-query
                                            :path [:map [:id :uuid]]}}}]])
 
 (derive :reitit.routes/api :reitit/routes)

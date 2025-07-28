@@ -15,13 +15,18 @@
 
 (def create-text-post-body
   [:map {:closed true}
-   [:text :string]])
+   [:text                      :string]
+   [:reply-to {:optional true} :uuid]])
 
 (def get-timeline-query
   [:map {:closed true}
    [:reverse {:optional true}   :boolean]
    [:limit   {:optional true}   :int]
    [:offset  {:optional true}   :int]])
+
+(def get-status-query
+  [:map {:closed true}
+   [:get-comments {:optional true} :boolean]])
 
 
 (defn get-timeline
@@ -43,20 +48,26 @@
 
 (defn get-status
   [{:keys [xtdb-node]}
-   {{{:keys [id]} :path} :parameters}]
+   {{{:keys [id]} :path {:keys [get-comments]} :query :as rocks} :parameters}]
+  (log/info "And " get-comments)
   (if-let [status (db/get-status-by-id xtdb-node id)]
-    (ok {:status status})
+    (ok (-> {:status status}
+            (merge (when-let [comments (when get-comments
+                                         (or (not-empty (db/get-comments-for-status xtdb-node '[user content xt/id] id)) []))]
+                     {:comments comments}))))
     (not-found! {:error "status_not_found" :message (str "A status with the id " id " was not found")})))
 
 (defn create-text-post!
   [{:keys [xtdb-node]}
-   {{{:keys [text]} :body} :parameters {:keys [user-id]} :session :as req}]
+   {{{:keys [text reply-to]} :body} :parameters {:keys [user-id]} :session :as req}]
   (when-not user-id
     (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
-  (let [{:keys [xt/id]} (db/create-status! xtdb-node {:text text} user-id)]
-    (log/info "Created text status" {:event :created-status :status-type :text :user-id user-id :content {:text text}})
+  (let [{:keys [xt/id] :as new-status} (db/create-status user-id {:text text} {:reply-to reply-to})]
+    (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+    (log/info "Created text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
     (created (str "/statuses/" id) {:status-id id})))
 
+;; TODO come back to this.
 (defn create-picture-post!
   [{:keys [xtdb-node]}
    {{{{:keys [image]} :status} :body} :parameters {:keys [user-id]} :session}]
@@ -64,4 +75,5 @@
     (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
   (let [{:keys [tempfile filename]} image
         {:keys [xt/id]} (resources/create-resource-from-file! xtdb-node tempfile filename)]
-    (db/create-status! xtdb-node {:image id :text "Text"} user-id)))
+;(db/create-status! xtdb-node {:image id :text "Text"} user-id)
+    ))

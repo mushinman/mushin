@@ -1,0 +1,16 @@
+#+title: mushin
+
+* TODO For 1.0
+- [ ] Implement image posts with libvip
+- [ ] Implement paginated feeds for user
+- [ ] Implement comments on statuses
+- [ ] Implement all basic CRUD operations for:
+  - [ ] Statuses
+  - [ ] Comments
+  - [ ] User accounts
+- [ ] Administration:
+  - [ ] Admin panel
+  - [ ] Admin/moderator accounts
+  - [ ] Admin/mod actions e.g. ban account, strike, etc..
+- [ ] Block accounts
+- [ ] Test suite
