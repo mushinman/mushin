@@ -1,8 +1,9 @@
 (ns org.mushin.web.controllers.statuses
-  (:require [ring.util.http-response :refer [unauthorized! created ok not-found!]]
+  (:require [ring.util.http-response :refer [unauthorized! created ok not-found! accepted]]
             [org.mushin.db.statuses :as db]
             [org.mushin.db.users :as user-db]
             [clojure.tools.logging :as log]
+            [org.mushin.web.auth-utils :as auth-utils]
             [org.mushin.db.util :as db-u]
             [xtdb.api :as xt]
             [org.mushin.db.resources :as resources])
@@ -28,6 +29,8 @@
   [:map {:closed true}
    [:get-comments {:optional true} :boolean]])
 
+(def status-query
+  [:map [:id :uuid]])
 
 (defn get-timeline
   [{:keys [xtdb-node]}
@@ -48,7 +51,7 @@
 
 (defn get-status
   [{:keys [xtdb-node]}
-   {{{:keys [id]} :path {:keys [get-comments]} :query :as rocks} :parameters}]
+   {{{:keys [id]} :path {:keys [get-comments]} :query} :parameters}]
   (log/info "And " get-comments)
   (if-let [status (db/get-status-by-id xtdb-node id)]
     (ok (-> {:status status}
@@ -56,6 +59,18 @@
                                          (or (not-empty (db/get-comments-for-status xtdb-node '[user content xt/id] id)) []))]
                      {:comments comments}))))
     (not-found! {:error "status_not_found" :message (str "A status with the id " id " was not found")})))
+
+(defn delete-status
+  [{:keys [xtdb-node]}
+   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session}]
+  (let [session-user user-id
+        post-owner (:user (db/get-status-by-id xtdb-node '[user] id))]
+    (when-not post-owner
+      (not-found! {:error "post_not_found" :message "The post you were trying to delete was not found"}))
+    (log/info {:event :delete-status :user user-id :status-owner post-owner})
+    (auth-utils/user-has-permissions-for! session-user post-owner)
+    (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
+    (accepted {:message "The post has been queued for deletion"})))
 
 (defn create-text-post!
   [{:keys [xtdb-node]}

@@ -3,7 +3,7 @@
 * TODO For 1.0
 - [ ] Implement image posts with libvip
 - [ ] Implement paginated feeds for user
-- [ ] Implement comments on statuses
+- [X] Implement comments on statuses
 - [ ] Implement all basic CRUD operations for:
   - [ ] Statuses
   - [ ] Comments

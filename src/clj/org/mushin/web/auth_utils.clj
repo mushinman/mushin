@@ -41,3 +41,15 @@
       (if-not (and password-hash (:valid (hasher/verify password-attempt password-hash)))
         (failed-auth! {:error "wrong_username_or_password" :message "the provided username or password is incorrect"})
         {:user-id id}))))
+
+(defn user-has-permissions-for?
+  "Determine if the user `subject-user-id` has the permissions to perform actions on user `object-user-id`."
+  [subject-user-id object-user-id]
+  ;; TODO this is definately going to need to be expanded.
+  (= subject-user-id object-user-id))
+
+(defn user-has-permissions-for!
+  "Determine if the user `subject-user-id` has the permissions to perform actions on user `object-user-id`."
+  [subject-user-id object-user-id]
+  ;; TODO this is definately going to need to be expanded.
+  (or (user-has-permissions-for? subject-user-id object-user-id) (unauthorized! {:error "insufficient_permission" :message "User does not have permissions for that action"})))
