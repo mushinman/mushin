@@ -1,5 +1,5 @@
 (ns org.mushin.web.controllers.statuses
-  (:require [ring.util.http-response :refer [unauthorized! created ok not-found! accepted]]
+  (:require [ring.util.http-response :refer [unauthorized! created ok not-found! accepted no-content]]
             [org.mushin.db.statuses :as db]
             [org.mushin.db.users :as user-db]
             [clojure.tools.logging :as log]
@@ -37,7 +37,7 @@
    {{:keys [nickname]} :path-params {:keys [user-id]} :session :keys [query-params]}]
   ;; TODO check if the sessioned user is able to see this post.
   (let [user-id (or (user-db/get-user-id-by-nickname xtdb-node nickname)
-                    (not-found! {:error "user_not_found" :message "A user by that nickname was not found"}))
+                    (not-found! {:error :user-not-found :message "A user by that nickname was not found"}))
         db-offset (or (:offset query-params) 0)
         db-limit  (or (:limit query-params) 64)
         direction (if (or (:reverse query-params) false)
@@ -58,28 +58,34 @@
             (merge (when-let [comments (when get-comments
                                          (or (not-empty (db/get-comments-for-status xtdb-node '[user content xt/id] id)) []))]
                      {:comments comments}))))
-    (not-found! {:error "status_not_found" :message (str "A status with the id " id " was not found")})))
+    (not-found! {:error :status-not-found :message (str "A status with the id " id " was not found")})))
 
-(defn delete-status
+(defn delete-status!
   [{:keys [xtdb-node]}
-   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session}]
+   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :as req}]
   (let [session-user user-id
         post-owner (:user (db/get-status-by-id xtdb-node '[user] id))]
     (when-not post-owner
-      (not-found! {:error "post_not_found" :message "The post you were trying to delete was not found"}))
+      (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"}))
     (log/info {:event :delete-status :user user-id :status-owner post-owner})
     (auth-utils/user-has-permissions-for! session-user post-owner)
-    (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
-    (accepted {:message "The post has been queued for deletion"})))
+
+    (if (get-in req [:headers "prefer-async"])
+      (do
+        (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
+        (accepted {:message "The post has been queued for deletion"}))
+      (do
+        (xt/execute-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
+        (no-content {:message "The post has been successfully deleted"})))))
 
 ;; TODO this won't work until I combine the POST request for all the content types into a single call.
-(defn put-status
+(defn put-status!
   [{:keys [xtdb-node]}
    {{{:keys [id]} :path {:keys [content]} :body} :parameters {:keys [user-id]} :session}]
   (let [session-user user-id
         post-owner (:user (db/get-status-by-id xtdb-node '[user] id))]
     (when-not post-owner
-      (not-found! {:error "post_not_found" :message "The post you were trying to delete was not found"})
+      (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"})
       (log/info {:event :edit-status :user user-id :status-owner post-owner :content content})
       (auth-utils/user-has-permissions-for! session-user post-owner)
       (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]]))))
@@ -88,18 +94,24 @@
   [{:keys [xtdb-node]}
    {{{:keys [text reply-to]} :body} :parameters {:keys [user-id]} :session :as req}]
   (when-not user-id
-    (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
+    (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
   (let [{:keys [xt/id] :as new-status} (db/create-status user-id {:text text} {:reply-to reply-to})]
-    (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
-    (log/info "Created text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
-    (created (str "/statuses/" id) {:status-id id})))
+    (log/info "Creating text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
+
+    (if (get-in req [:headers "prefer-async"])
+      (do
+        (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+        (accepted {:message "Your post has been queued for creation"}))
+      (do
+        (db-u/execute-tx  xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+        (created (str "/statuses/" id) {:status-id id})))))
 
 ;; TODO come back to this.
 (defn create-picture-post!
   [{:keys [xtdb-node]}
    {{{{:keys [image]} :status} :body} :parameters {:keys [user-id]} :session}]
   (when-not user-id
-    (unauthorized! {:error "not_logged_in" :message "You are not logged in, and so have no permissions to perform this action"}))
+    (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
   (let [{:keys [tempfile filename]} image
         {:keys [xt/id]} (resources/create-resource-from-file! xtdb-node tempfile filename)]
 ;(db/create-status! xtdb-node {:image id :text "Text"} user-id)

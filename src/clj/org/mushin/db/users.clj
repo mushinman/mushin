@@ -9,6 +9,18 @@
   [:nickname  [:and [:and [:string {:min 1 :max 32}] [:re #"\w+"]]]])
 
 (def user-schema
+  "Schema for users.
+  | Key                 | Type      | Meaning                                                           |
+  |:--------------------|:----------|:------------------------------------------------------------------|
+  | `xt/id`             | UUID      | Row key                                                           |
+  | `email`             | string    | User email address                                                |
+  | `log-counter`       | int       | How many times this user has logged in counted at most once daily |
+  | `nickname`          | string    | The user's nickname                                               |
+  | `password-hash`     | string    | Password hash                                                     |
+  | `description`       | string    | The user's description                                            |
+  | `joined-at`         | Timestamp | The time the user created their account                           |
+  | `last-logged-in-at` | Timestamp | The last the user logged in                                       |
+  "
   {::tiny-string  [:string {:min 1 :max 32}]
    ::short-string [:string {:min 1 :max 256}]
    ::long-string  [:string {:min 1 :max 4096}]
@@ -40,7 +52,7 @@
 (defn get-user-id-by-nickname
   [xtdb-node nickname]
   (-> (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [xt/id {:nickname ~nickname}])
-                                   (limit 1))))
+                                       (limit 1))))
       first
       :xt/id))
 

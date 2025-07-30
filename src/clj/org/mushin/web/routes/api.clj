@@ -80,7 +80,7 @@
                               :middleware [(partial auth/wrap-authenticate-user opts)]
                               :parameters {:query statuses/get-status-query
                                            :path statuses/status-query}}
-                       :delete {:handler (partial statuses/delete-status opts)
+                       :delete {:handler (partial statuses/delete-status! opts)
                                 :middleware [(partial auth/wrap-authenticate-user opts)]
                                 :parameters {:query statuses/get-status-query
                                              :path statuses/status-query}}}]])

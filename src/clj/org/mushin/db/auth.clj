@@ -13,7 +13,7 @@
 
 (defn generate-token-str
   [n-bytes]
-  (-> (nonce/random-bytes 32)
+  (-> (nonce/random-bytes n-bytes)
       (codecs/bytes->b64-str)))
 
 (defn generate-token

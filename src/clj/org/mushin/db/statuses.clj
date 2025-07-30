@@ -12,11 +12,11 @@
 | `user`       | UUID/Foreign key to `users` table | Owner of the status                   |
 | `creator`    | UUID/Foreign key to `users` table | Creator of the status                 |
 | `reply-to`   | UUID/Key for `statuses` table     | Status that this status is a reply to |
-| `created-at` | Timestamp                         | Time this post was created            |
-| `updated-at` | Timestamp                         | The time the current edit was made    |
+| `created-at` | Timestamp                         | The time a user created this post     |
+| `updated-at` | Timestamp                         | The time a user edited this post      |
 | `tags`       | string vector                     | Tags for searching                    |
 | `content`    | Text and/or media                 | The content of the post               |
-  ``"
+"
   {:mushin.db/statuses
    [:map
     [:xt/id                     :uuid]
