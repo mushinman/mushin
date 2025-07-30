@@ -72,6 +72,18 @@
     (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
     (accepted {:message "The post has been queued for deletion"})))
 
+;; TODO this won't work until I combine the POST request for all the content types into a single call.
+(defn put-status
+  [{:keys [xtdb-node]}
+   {{{:keys [id]} :path {:keys [content]} :body} :parameters {:keys [user-id]} :session}]
+  (let [session-user user-id
+        post-owner (:user (db/get-status-by-id xtdb-node '[user] id))]
+    (when-not post-owner
+      (not-found! {:error "post_not_found" :message "The post you were trying to delete was not found"})
+      (log/info {:event :edit-status :user user-id :status-owner post-owner :content content})
+      (auth-utils/user-has-permissions-for! session-user post-owner)
+      (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]]))))
+
 (defn create-text-post!
   [{:keys [xtdb-node]}
    {{{:keys [text reply-to]} :body} :parameters {:keys [user-id]} :session :as req}]

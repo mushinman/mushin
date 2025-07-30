@@ -16,8 +16,10 @@
    :mushin.db/users [:map
                      [:xt/id     :uuid]
                      [:email  {:optional true}  [:and ::short-string [:re #".+@.+"]]]
-                     [:nickname :string]
-                     [:password-hash :string]
+                     [:log-counter     :int]
+                     [:nickname        :string]
+                     [:password-hash   :string]
+                     [:description     :string]
                      [:joined-at (mallt/-zoned-date-time-schema)]
                      [:last-logged-in-at (mallt/-zoned-date-time-schema)]]})
 
@@ -46,6 +48,8 @@
   (let [now (jt/zoned-date-time)
         doc {:xt/id (random-uuid)
              :nickname nickname
+             :log-counter 0
+             :description ""
              :password-hash (crypt/hash-password password)
              :joined-at now
              :last-logged-in-at now}]
