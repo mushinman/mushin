@@ -12,6 +12,7 @@
     [reitit.ring.middleware.parameters :as parameters]
     [org.mushin.web.controllers.accounts :as accounts]
     [ring.logger :as ring-logger]
+    [org.mushin.web.middleware.tx-func :as tx]
     [org.mushin.web.controllers.statuses :as statuses]
     [reitit.swagger :as swagger]))
 
@@ -25,6 +26,8 @@
                 parameters/parameters-middleware
                   ;; content-negotiation
                 muuntaja/format-negotiate-middleware
+                  ;; Async headers
+                tx/wrap-add-tx-fn
                   ;; encoding response body
                 muuntaja/format-response-middleware
                   ;; exception handling
@@ -72,9 +75,9 @@
    ;                    :middleware [(partial auth/wrap-authenticate-user opts)]
    ;                    :parameters {:body statuses/create-picture-post-body}}]
 
-   ["/create-text-post" {:handler (partial statuses/create-text-post! opts)
+   ["/create-status-post" {:handler (partial statuses/create-status-post! opts)
                          :middleware [(partial auth/wrap-authenticate-user opts)]
-                         :parameters {:body statuses/create-text-post-body}}]
+                         :parameters {:body statuses/create-status-body}}]
 
    ["/statuses/s/:id" {:get  {:handler (partial statuses/get-status opts)
                               :middleware [(partial auth/wrap-authenticate-user opts)]

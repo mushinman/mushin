@@ -14,8 +14,15 @@
    [:image {:description "mulitpart file"}]
    [:text :string]])
 
-(def create-text-post-body
+(def create-status-body
   [:map {:closed true}
+   [:reply-to {:optional true} :uuid]
+   [:content                   [:map {:closed true}
+                                [:text {:optional true} :string]
+                                [:media  {:description "mulitpart file" :optional true} :any]]]])
+
+(def create-text-post-body
+  [:map
    [:text                      :string]
    [:reply-to {:optional true} :uuid]])
 
@@ -62,15 +69,15 @@
 
 (defn delete-status!
   [{:keys [xtdb-node]}
-   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :as req}]
+   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
   (let [session-user user-id
-        post-owner (:user (db/get-status-by-id xtdb-node '[user] id))]
-    (when-not post-owner
+        {:keys [post-owner xt/id]} (db/get-status-by-id xtdb-node '[user xt/id] id)]
+    (when-not id
       (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"}))
     (log/info {:event :delete-status :user user-id :status-owner post-owner})
     (auth-utils/user-has-permissions-for! session-user post-owner)
 
-    (if (get-in req [:headers "prefer-async"])
+    (if async?
       (do
         (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
         (accepted {:message "The post has been queued for deletion"}))
@@ -83,7 +90,7 @@
   [{:keys [xtdb-node]}
    {{{:keys [id]} :path {:keys [content]} :body} :parameters {:keys [user-id]} :session}]
   (let [session-user user-id
-        post-owner (:user (db/get-status-by-id xtdb-node '[user] id))]
+        {:keys [post-owner xt/id]} (db/get-status-by-id xtdb-node '[user xt/id] id)]
     (when-not post-owner
       (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"})
       (log/info {:event :edit-status :user user-id :status-owner post-owner :content content})
@@ -95,16 +102,7 @@
    {{{:keys [text reply-to]} :body} :parameters {:keys [user-id]} :session :as req}]
   (when-not user-id
     (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
-  (let [{:keys [xt/id] :as new-status} (db/create-status user-id {:text text} {:reply-to reply-to})]
-    (log/info "Creating text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
-
-    (if (get-in req [:headers "prefer-async"])
-      (do
-        (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
-        (accepted {:message "Your post has been queued for creation"}))
-      (do
-        (db-u/execute-tx  xtdb-node [[:put-docs :mushin.db/statuses new-status]])
-        (created (str "/statuses/" id) {:status-id id})))))
+  )
 
 ;; TODO come back to this.
 (defn create-picture-post!
@@ -116,3 +114,29 @@
         {:keys [xt/id]} (resources/create-resource-from-file! xtdb-node tempfile filename)]
 ;(db/create-status! xtdb-node {:image id :text "Text"} user-id)
     ))
+
+(defn create-media-status!
+  [xtdb-node user-id {:keys [tempfile filename]} text reply-to async?]
+  )
+
+(defn create-text-status!
+  [xtdb-node user-id text reply-to async?]
+  (let [{:keys [xt/id] :as new-status} (db/create-status user-id {:text text} {:reply-to reply-to})]
+    (log/info "Creating text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
+    (if async?
+      (do
+        (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+        (accepted {:message "Your post has been queued for creation"}))
+      (do
+        (db-u/execute-tx  xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+        (created (str "/statuses/" id) {:status-id id})))))
+
+(defn create-status-post!
+  [{:keys [xtdb-node]}
+   {{{{:keys [text media]} :content :keys [reply-to]} :body} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
+  (prn req)
+  (when-not user-id
+    (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
+  (if media
+    (create-media-status!)
+    (create-text-status! xtdb-node user-id text reply-to async?)))

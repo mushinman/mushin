@@ -12,7 +12,7 @@
 
 (defn delete-user!
   [{:keys [xtdb-node]}
-   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :as req}]
+   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
   (let [session-user user-id
         target-user id]
     (when-not target-user
@@ -21,7 +21,7 @@
     (auth-utils/user-has-permissions-for! session-user target-user)
 
     ;; TODO maybe queue the user's posts for deletion too?
-    (if (get-in req [:headers "accept-async"])
+    (if async?
       (do
         (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
         (accepted {:message "This user has been queued for deletion"}))
