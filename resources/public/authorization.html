@@ -1,0 +1,68 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>Authorization</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    </head>
+    <body>
+        <form id="accountinfo">
+            <div>
+                <label for="username">Username:</label><br/>
+                <input type="text" id="username" name="username" required/>
+            </div>
+
+            <div>
+                <label for="password">Password:</label><br/>
+                <input type="password" id="password" name="password" required/>
+            </div>
+
+            <br/>
+
+            <div>
+                <input type="submit" value="Submit"/>
+            </div>
+        </form>
+
+        <script defer>
+         const form = document.querySelector("#accountinfo");
+
+         async function sendData() {
+             const formData = new FormData(form);
+
+             // TODO put the hidden oauth values in the POST request body, not the query params.
+             try {
+                 const response = await fetch("/api/oauth/create-code", {
+                     method: "POST",
+                     body: JSON.stringify({...Object.fromEntries(formData.entries()),
+                                           ...{'redirect-uri': 'http://localhost:3000/api/oauth/auth-callback',
+                                               state: 'my-state'}}),
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'Accept': 'application/json'
+                     },
+                 });
+                 if (response.status === 302) {
+                     const location = response.headers.get('Location');
+                     if (location) {
+                         window.location.ref = location;
+                     } else {
+                         console.error('Got 302 but no location header was sent!');
+                     }
+                 }
+             } catch(e) {
+                 console.error(e);
+             }
+         }
+
+         form.addEventListener("submit", (event) => {
+             event.preventDefault();
+             sendData();
+         });
+        </script>
+    </body>
+</html>

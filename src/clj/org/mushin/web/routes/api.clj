@@ -5,11 +5,13 @@
     [org.mushin.web.middleware.exception :as exception]
     [org.mushin.web.middleware.formats :as formats]
     [integrant.core :as ig]
+    [ring.util.response :as resp]
     [org.mushin.web.middleware.auth :as auth]
     [reitit.coercion.malli :as malli]
     [reitit.ring.coercion :as coercion]
     [reitit.ring.middleware.muuntaja :as muuntaja]
     [reitit.ring.middleware.parameters :as parameters]
+    [org.mushin.web.controllers.oauth :as oauth]
     [org.mushin.web.controllers.accounts :as accounts]
     [ring.logger :as ring-logger]
     [org.mushin.web.middleware.tx-func :as tx]
@@ -46,6 +48,17 @@
     {:get {:no-doc  true
            :swagger {:info {:title "org.mushin API"}}
            :handler (swagger/create-swagger-handler)}}]
+   ["/oauth"
+    ["/authorize"
+     {:get {:handler (fn [req] (prn req)  (resp/resource-response "authorization.html" {:root "public"}))}}]
+    ["/create-code"
+     {:post {:handler (partial oauth/create-code-post! opts)
+             :parameters {:body oauth/create-code-post-body
+                          }}}]
+    ["/auth-callback"
+     {:post {:handler (partial oauth/create-code-post! opts)
+             :parameters {:body oauth/create-code-post-body
+                          }}}]]
    ["/health"
     ;; note that use of the var is necessary
     ;; for reitit to reload routes without
@@ -62,6 +75,8 @@
    ["/auth-test"
     {:get  {:handler (partial health/auth-test-post opts)
             :middleware [(partial auth/wrap-authenticate-user opts)]}}]
+   ["/session/refresh"
+    {:post {:handler (partial auth-handlers/refresh-session! opts)}}]
    ["/login" {:handler (partial auth-handlers/login! opts)}]
    ["/logout" {:handler auth-handlers/logout!}]
    ["/create-account"

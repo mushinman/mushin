@@ -48,7 +48,8 @@
  {:base-path "/api"
   :env       #ig/ref :system/env
   :metrics   #ig/ref :metrics/prometheus
-  :xtdb-node #ig/ref :db.xtdb/node}
+  :xtdb-node #ig/ref :db.xtdb/node
+  :mushin/jwks      #ig/ref :org.mushin.web.sign/jwk}
 
  :router/routes
  {:routes #ig/refset :reitit/routes}
@@ -58,7 +59,21 @@
   :env #ig/ref :system/env} 
 
  :cronut/scheduler
- {:schedule []}
+ {:schedule #profile {:test    []
+                      :default [{:job     #ig/ref :org.mushin.db.tasks/tasks
+                                 :trigger #cronut/cron "0 0 1 * * ?"}]}
+  :disallowConcurrentExecution? true}
+
+ ;; Database cleanup tasks.
+ :org.mushin.db.tasks/tasks
+ {:identity  "org.mushin.db.tasks/tasks"
+  :description "Clean up temporary database state"
+  :xtdb-node #ig/ref :db.xtdb/node
+  :recover? true
+  :durable? true}
+
+ :org.mushin.web.sign/jwk
+ {}
 
  ;; resources/system.edn
  :db.xtdb/node

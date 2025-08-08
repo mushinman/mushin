@@ -2,6 +2,7 @@
   (:require [ring.util.http-response :refer [unauthorized! bad-request!]]
             [ring.util.codec :as ring-codec]
             [clojure.string :as cstr]
+            [buddy.hashers :as hashers]
             [xtdb.api :as xt]
             [buddy.hashers :as hasher]))
 
@@ -23,6 +24,14 @@
   (-> (bad-request! body)
       (assoc :headers (challenge-headers))))
 
+(defn check-nickname-password
+  [xtdb-node nickname password]
+  (let [{:keys [password-hash xt/id]} (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [{:nickname ~nickname} password-hash xt/id])
+                                                                              (limit 1)))))]
+    (if (and password-hash (:valid (hasher/verify password password-hash)))
+      id
+      false)))
+
 (defn check-basic-auth! [auth-arg xtdb-node]
   (when-not auth-arg
     (invalid-auth! {:error "invalid_basic" :message "the provided basic authorization header had no credentials"}))
@@ -31,16 +40,13 @@
                     (String. (ring-codec/base64-decode auth-arg) (java.nio.charset.Charset/forName "UTF-8"))
                     (catch Exception _
                       (invalid-auth! {:error "invalid_base64" :message "the basic authorization header contained invalid base64"})))
-        [username password-attempt :as creds] (cstr/split b64-creds #":")]
+        [nickname password-attempt :as creds] (cstr/split b64-creds #":")]
 
     (when (some nil? creds)
       (invalid-auth! {:error "invalid_basic" :message "the provided basic authorization header was not in the standard user:password format"}))
-
-    (let [{:keys [password-hash xt/id]} (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [{:nickname ~username} password-hash xt/id])
-                                                                                (limit 1)))))]
-      (if-not (and password-hash (:valid (hasher/verify password-attempt password-hash)))
-        (failed-auth! {:error "wrong_username_or_password" :message "the provided username or password is incorrect"})
-        {:user-id id}))))
+    (if-let [id (check-nickname-password xtdb-node nickname password-attempt)]
+      {:user-id id}
+      (failed-auth! {:error :wrong-nickname-or-password :message "the provided nickname or password is incorrect"}))))
 
 (defn user-has-permissions-for?
   "Determine if the user `subject-user-id` has the permissions to perform actions on user `object-user-id`."

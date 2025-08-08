@@ -14,3 +14,7 @@
   - [ ] Admin/mod actions e.g. ban account, strike, etc..
 - [ ] Block accounts
 - [ ] Test suite
+- [ ] PKCE
+- [ ] Oauth 2.0
+- [ ] Post rendering
+- [ ] Append /v1/ to api calls

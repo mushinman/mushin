@@ -90,6 +90,11 @@
 (defn -malli-wrap [{:keys [value message] :as error}]
   (str "Invalid argument `" (pr-str value) "`: " message))
 
+(defn record-exists? [node table id]
+  (boolean (first (xt/q node (xt/template
+                              (-> (from ~table [{:xt/id ~id}])
+                                  (limit 1)))))))
+
 
 (defn compile-op-dispatch [node op]
   (first op))
@@ -100,11 +105,10 @@
   [[:as op]]
   [op])
 
+(defmethod compile-op :sql
+  [_ op]
+  [op])
 
-(defn record-exists? [node table id]
-  (boolean (first (xt/q node (xt/template
-                              (-> (from ~table [{:xt/id ~id}])
-                                  (limit 1)))))))
 
 ;; TODO this is bad. We should just check to see if the document exists
 ;; and reject tx if it's an insert. If it's an update, we'll check against the schema

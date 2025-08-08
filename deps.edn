@@ -22,10 +22,17 @@
            luminus-transit/luminus-transit {:mvn/version "0.1.6"
                                             :exclusions [com.cognitect/transit-clj]}
            metosin/muuntaja                {:mvn/version "0.6.8"}
+           metosin/muuntaja-form           {:mvn/version "0.6.8"}
+
+           ;; UUID
+           danlentz/clj-uuid {:mvn/version "0.2.0"}
+
+           lambdaisland/uri {:mvn/version "1.19.155"}
 
            ;; DB.
-           com.xtdb/xtdb-core              {:mvn/version "2.0.0"}
-           com.xtdb/xtdb-api               {:mvn/version "2.0.0"}
+           com.xtdb/xtdb-core               {:mvn/version "2.0.0"}
+           com.xtdb/xtdb-api                {:mvn/version "2.0.0"}
+           com.github.seancorfield/honeysql {:mvn/version "2.7.1340"}
 
            ;; Auth, signing, hashing, security.
            buddy/buddy-core {:mvn/version "1.12.0-430"}

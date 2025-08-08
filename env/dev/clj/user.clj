@@ -25,15 +25,20 @@
 
 (add-tap (bound-fn* clojure.pprint/pprint))
 
+;; TODO test the sign tokens use in a release build/make sure the require works.
+
 (defn dev-prep!
   []
   (integrant.repl/set-prep! (fn []
+                              (require 'org.mushin.web.sign)
+                              (require 'org.mushin.db.tasks)
                               (-> (org.mushin.config/system-config {:profile :dev})
                                   (ig/expand)))))
 
 (defn test-prep!
   []
   (integrant.repl/set-prep! (fn []
+                              (require 'org.mushin.web.sign)
                               (-> (org.mushin.config/system-config {:profile :test})
                                   (ig/expand)))))
 
