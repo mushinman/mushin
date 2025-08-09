@@ -102,7 +102,7 @@
 (defmulti compile-op #'compile-op-dispatch)
 
 (defmethod compile-op :default
-  [[:as op]]
+  [_ op]
   [op])
 
 (defmethod compile-op :sql

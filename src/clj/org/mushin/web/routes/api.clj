@@ -77,8 +77,8 @@
             :middleware [(partial auth/wrap-authenticate-user opts)]}}]
    ["/session/refresh"
     {:post {:handler (partial auth-handlers/refresh-session! opts)}}]
-   ["/login" {:handler (partial auth-handlers/login! opts)}]
-   ["/logout" {:handler auth-handlers/logout!}]
+   ["/session/login" {:handler (partial auth-handlers/login! opts)}]
+   ["/session/logout" {:handler (partial auth-handlers/logout! opts)}]
    ["/create-account"
     {:post {:handler (partial accounts/create-account-post! opts)
             :parameters {:body accounts/create-account-body}}}]

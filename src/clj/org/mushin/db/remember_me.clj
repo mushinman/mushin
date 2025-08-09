@@ -3,26 +3,30 @@
             [buddy.core.nonce :as nonce]
             [java-time.api :as time]
             [xtdb.api :as xt]
-            [clj-commons.digest :as digest]
+            [org.mushin.digest :as digest]
             [honey.sql :as sql]
             [org.mushin.tokens :as tokens]
             [org.mushin.db.util :as db]
-            [buddy.core.codecs :as codecs])
-  (:import [java.security MessageDigest]))
+            [org.mushin.codecs :as codecs]))
 
 (def purge-invalid-tokens-query
   [:sql (first (sql/format {:erase-from [:mushin.db/remember-me]
                             :where [:> [:+ :created-at :valid-for] [:now]]}))])
 
+
+(def forget-everybody
+  [:sql (first (sql/format {:erase-from [:mushin.db/remember-me]}))])
+
 ;; TODO should probably change valid-for's type from duration to period.
 (def remember-me
-  {:mushin.db/remember-me [:map {:closed true}
-                           [:xt/id                   :uuid]
-                           [:user                    :uuid]
-                           [:selector                :string]
-                           [:hashed-validator        :string]
-                           [:created-at              (mallt/-zoned-date-time-schema)]
-                           [:valid-for               :time/duration]]})
+  {:mushin.db/remember-me
+   [:map {:closed true}
+    [:xt/id                   :uuid]
+    [:user                    :uuid]
+    [:selector                :string]
+    [:hashed-validator        :string]
+    [:created-at              (mallt/-zoned-date-time-schema)]
+    [:valid-for               :time/duration]]})
 
 (defn get-token-value
   "Get the value of a token from the token string.
@@ -47,28 +51,41 @@
 
 (defn remember-user
   ([user-id valid-for]
-   (let [selector (tokens/generate-token 16)
+   (let [selector (codecs/bytes->b64u (tokens/generate-token 16))
          validator (tokens/generate-token 32)]
      {:selector selector
-      :validator validator
+      :validator (codecs/bytes->b64u validator)
+      :valid-for        valid-for
       :doc {:xt/id            (random-uuid)
             :selector         selector
-            :hashed-validator (codecs/bytes->b64u (codecs/b64->bytes (digest/sha-256 validator)))
+            :hashed-validator (digest/sha-256-b64u validator)
             :user             user-id
             :created-at       (time/zoned-date-time)
             :valid-for        valid-for}}))
   ([user-id] (remember-user user-id (time/duration 30 :days))))
 
-(defn recall-user!
+
+      ;; TODO fix db/submit-tx not working for erase-docs, delete-docs
+      ;; Delete the token.
+      ;;(xt/submit-tx xtdb-node [[:erase-docs :mushin.db/remember-me (:xt/id token)]])
+
+(defn recall-user
   [xtdb-node selector validator]
   (when-let [token (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/remember-me [created-at valid-for user hashed-validator xt/id {:selector ~selector}])
                                                            (where (< ~(time/zoned-date-time)
                                                                      (+ created-at valid-for)))
                                                            (limit 1)
                                                            (return hashed-validator user xt/id)))))]
-    (when (MessageDigest/isEqual (codecs/b64u->bytes (:hashed-validator token)) (codecs/b64->bytes (digest/sha-256 validator)))
-      ;; Delete the token.
-      ;; TODO fix db/submit-tx not working for erase-docs, delete-docs
-      (xt/submit-tx xtdb-node [[:erase-docs :mushin.db/remember-me (:xt/id token)]])
-      (:user token))))
+    (when (digest/eq (codecs/b64u->bytes (:hashed-validator token)) (digest/sha-256-bytes (codecs/b64u->bytes validator)))
+      (dissoc token :hashed-validator))))
 
+;(def matt #uuid "45a4f33a-8b9d-464f-b9d4-f90d92b36eb8")
+;(def matt-cookie (remember-user matt (time/duration 1 :hours)))
+;matt-cookie
+;(prn matt-cookie)
+;(xt/execute-tx (user/dev-xtdb-node) [[:put-docs :mushin.db/remember-me (:doc matt-cookie)]])
+
+;(xt/execute-tx (user/dev-xtdb-node) [forget-everybody])
+;(def cookies (xt/q (user/dev-xtdb-node) (xt/template (-> (from :mushin.db/remember-me [xt/id])))))
+;cookies
+;(map :xt/id cookies)
