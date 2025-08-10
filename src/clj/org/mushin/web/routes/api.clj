@@ -4,9 +4,11 @@
     [org.mushin.web.controllers.auth :as auth-handlers]
     [org.mushin.web.middleware.exception :as exception]
     [org.mushin.web.middleware.formats :as formats]
+    [org.mushin.web.middleware.state :as state]
     [integrant.core :as ig]
     [ring.util.response :as resp]
     [org.mushin.web.middleware.auth :as auth]
+    [org.mushin.web.middleware.cache-control :as cache-control]
     [reitit.coercion.malli :as malli]
     [reitit.ring.coercion :as coercion]
     [reitit.ring.middleware.muuntaja :as muuntaja]
@@ -49,16 +51,26 @@
            :swagger {:info {:title "org.mushin API"}}
            :handler (swagger/create-swagger-handler)}}]
    ["/oauth"
+    ["/callback"
+     ["/login"
+      {:get {:handler (partial oauth/auth-callback-get opts)
+             :parameters {:query oauth/auth-callback-get-query}
+             :middleware [(partial cache-control/wrap-cache-control "no-store")]}}]]
+
+    ["/token"
+     {:post {:handler (partial oauth/token-post! opts)
+             :parameters {:body oauth/token-post-body}
+             :middleware [(partial cache-control/wrap-cache-control "no-store")
+                          state/wrap-state]}}]
     ["/authorize"
-     {:get {:handler (fn [req] (prn req)  (resp/resource-response "authorization.html" {:root "public"}))}}]
+     {:get {:handler (fn [_] (resp/resource-response "authorization.html" {:root "public"}))}}]
     ["/create-code"
      {:post {:handler (partial oauth/create-code-post! opts)
-             :parameters {:body oauth/create-code-post-body
-                          }}}]
+             :parameters {:body oauth/create-code-post-body}}}]
     ["/auth-callback"
      {:post {:handler (partial oauth/create-code-post! opts)
-             :parameters {:body oauth/create-code-post-body
-                          }}}]]
+             :parameters {:body oauth/create-code-post-body}
+             :middleware [state/wrap-state]}}]]
    ["/health"
     ;; note that use of the var is necessary
     ;; for reitit to reload routes without

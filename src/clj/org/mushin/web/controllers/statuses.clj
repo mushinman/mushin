@@ -83,7 +83,7 @@
         (accepted {:message "The post has been queued for deletion"}))
       (do
         (xt/execute-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
-        (no-content {:message "The post has been successfully deleted"})))))
+        (no-content)))))
 
 ;; TODO this won't work until I combine the POST request for all the content types into a single call.
 (defn put-status!
@@ -131,6 +131,7 @@
         (db-u/execute-tx  xtdb-node [[:put-docs :mushin.db/statuses new-status]])
         (created (str "/statuses/" id) {:status-id id})))))
 
+;; TODO
 (defn create-status-post!
   [{:keys [xtdb-node]}
    {{{{:keys [text media]} :content :keys [reply-to]} :body} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]

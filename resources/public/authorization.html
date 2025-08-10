@@ -29,18 +29,45 @@
         </form>
 
         <script defer>
+
+         // Verify the query params
+         const urlParams = new URLSearchParams(window.location.search);
+
+         if (!urlParams.has('code_challenge')) {
+             // TODO error
+         } else if (!urlParams.has('code_method')) {
+             // TODO error
+         } else if (!urlParams.has('state')) {
+             // TODO error
+         } else if (!urlParams.has('redirect_uri')) {
+             // TODO error
+         }
+
+         const codeMethod = urlParams.get('code_method');
+
+         if (codeMethod !== 'S256') {
+             // TODO error
+         }
+
+         const state = urlParams.get('state');
+         const codeChallenge = urlParams.get('code_challenge');
+         const redirectUi = urlParams.get('redirect_uri');
+
          const form = document.querySelector("#accountinfo");
 
          async function sendData() {
              const formData = new FormData(form);
 
              // TODO put the hidden oauth values in the POST request body, not the query params.
+             // TODO fix localhost:3000, should be the URL of the server.
              try {
                  const response = await fetch("/api/oauth/create-code", {
                      method: "POST",
                      body: JSON.stringify({...Object.fromEntries(formData.entries()),
-                                           ...{'redirect-uri': 'http://localhost:3000/api/oauth/auth-callback',
-                                               state: 'my-state'}}),
+                                           ...{'redirect-uri': redirectUri,
+                                               state: state,
+                                               code_challenge: codeChallenge,
+                                               code_method: codeMethod}}),
                      headers: {
                          'Content-Type': 'application/json',
                          'Accept': 'application/json'

@@ -1,7 +1,10 @@
 #+title: mushin
 
 * TODO For 1.0
-- [ ] Implement image posts with libvip
+- [ ] Implement image posts
+- [ ] Implement gif posts
+- [ ] Implement text posts
+- [ ] Implement comic posts
 - [ ] Implement paginated feeds for user
 - [X] Implement comments on statuses
 - [ ] Implement all basic CRUD operations for:
@@ -14,7 +17,8 @@
   - [ ] Admin/mod actions e.g. ban account, strike, etc..
 - [ ] Block accounts
 - [ ] Test suite
-- [ ] PKCE
-- [ ] Oauth 2.0
 - [ ] Post rendering
 - [ ] Append /v1/ to api calls
+- [ ] oauth
+  - [ ] PKCE
+  - [ ] Implement state param
