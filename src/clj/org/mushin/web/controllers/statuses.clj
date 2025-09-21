@@ -6,8 +6,19 @@
             [org.mushin.web.auth-utils :as auth-utils]
             [org.mushin.db.util :as db-u]
             [xtdb.api :as xt]
-            [org.mushin.db.resources :as resources])
-  (:import [java.nio.file Files]))
+            [org.mushin.db.resources :as resources]
+            [org.mushin.files :as files]
+            [org.mushin.buffers :as buffers]
+            [org.mushin.mime :as mime]
+            [org.mushin.digest :as digest]
+            [clojure.java.io :as io])
+  (:import [java.nio.file Files]
+           [java.io InputStream]
+           [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
+           [javax.imageio.metadata IIOMetadata IIOMetadataNode]
+           [javax.imageio.stream ImageInputStream MemoryCacheImageInputStream ImageOutputStream]
+           [java.awt.image BufferedImage RenderedImage IndexColorModel]
+           [java.nio ByteOrder]))
 
 (def create-picture-post-body
   [:map {:closed true}
@@ -38,6 +49,55 @@
 
 (def status-query
   [:map [:id :uuid]])
+
+(defn- verify-image-upload
+  [^InputStream image-stream]
+  true) ; TODO
+
+(defn create-resource-from-static-img
+  [^InputStream image-stream mime-type xtdb-node]
+  (let [image-iis (ImageIO/createImageInputStream image-stream)
+        img (ImageIO/read image-iis)
+        _ (when-not img
+            ;; For some reason, the above overload of imageio.read() closes the input stream...
+            ;; unless an error occurred, in which case img is null.
+            (.close image-iis)
+            (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
+        width (.getWidth img)
+        height (.getHeight img)
+        checksum (let [rgb-array (int-array width)
+                       raw-byte-array (byte-array (* width 4))
+                       md (digest/create-sha256-digest)
+                       bb (buffers/set-byte-order (buffers/wrap-bytes raw-byte-array) ByteOrder/BIG_ENDIAN)]
+                   ;; TODO add certain metadata support like EXIF orientation. Would need to rotate the image
+                   ;; and add that information to the checksum.
+                   (dotimes [y height]
+                     (.getRGB img 0 y width 1 rgb-array 0 width)
+                     (buffers/copy-ints-to-byte-buffer! rgb-array bb)
+                     (digest/update-digest-buffer md raw-byte-array)
+                     (buffers/clear-byte-buffer bb))
+                   (digest/digest->b64 md))
+        output-file-path (files/create-temp-file "" "")]
+    (try
+      (with-open [temp-output-file (io/output-stream (str output-file-path))
+                  image-ios (ImageIO/createImageOutputStream temp-output-file)]
+        (ImageIO/write img (mime/mime-types mime-type) image-ios))
+      (resources/create-resource-from-file! xtdb-node output-file-path checksum mime-type)
+      (catch Exception ex
+        (throw ex))
+      (finally
+        (files/delete output-file-path)))))
+
+(defn- create-resource-from-gif
+  [^InputStream image-stream mime-type]
+  nil)
+
+(defn- create-resource-from-upload
+  [^InputStream image-stream mime-type xtdb-node]
+  (cond
+    (= mime-type :gif) (create-resource-from-gif image-stream mime-type)
+    (some #(= mime-type %) [:png :jpg]) (create-resource-from-static-img image-stream mime-type xtdb-node)
+    :else (throw (ex-info "Mime type is not supported" {:mime-type mime-type}))))
 
 (defn get-timeline
   [{:keys [xtdb-node]}

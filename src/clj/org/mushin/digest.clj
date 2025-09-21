@@ -3,21 +3,40 @@
             [org.mushin.codecs :as codecs])
   (:import [java.security MessageDigest]))
 
+(defn create-sha256-digest
+  []
+  (MessageDigest/getInstance "SHA-256"))
+
+(defn update-digest-byte
+  [^MessageDigest md ^Byte b]
+   (.update md b))
+
+(defn update-digest-buffer
+  ([^MessageDigest md ^bytes data]
+   (.update md data))
+  ([^MessageDigest md ^bytes data ^long offset ^long length]
+   (.update md data offset length)))
+
 (defn sha-256-bytes
-  [^bytes data]
+  [data]
   (-> (clj-digest/sha-256 data)
       (codecs/hex->bytes)))
 
 (defn sha-256-b64u
-  [^bytes data]
+  [data]
   (-> (clj-digest/sha-256 data)
       (codecs/hex->bytes)
       (codecs/bytes->b64u)))
 
 (defn sha-256-b64
-  [^bytes data]
+  [data]
   (-> (clj-digest/sha-256 data)
       (codecs/hex->bytes)
+      (codecs/bytes->b64)))
+
+(defn digest->b64
+  [^MessageDigest md]
+  (-> (.digest md)
       (codecs/bytes->b64)))
 
 (defn eq
