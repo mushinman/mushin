@@ -2,7 +2,7 @@
   (:import [io.sf.carte.echosvg.transcoder TranscoderOutput]
            [java.awt.image BufferedImage])
   (:gen-class
-   :name org.svg2gif.BufferedImageTranscoder
+   :name org.mushin.multimedia.BufferedImageTranscoder
    :extends io.sf.carte.echosvg.transcoder.image.ImageTranscoder
    :prefix "bit-"
    :init init
@@ -26,7 +26,6 @@
 (defn bit-createImage
   ^BufferedImage
   [this ^Integer w ^Integer h]
-  (println "Hello world3")
   (let [img (BufferedImage. w h BufferedImage/TYPE_INT_ARGB)]
     (set-field! this :img img)
     img))
@@ -34,10 +33,8 @@
 (defn bit-getImage
   ^BufferedImage
   [this]
-  (println "Hello world2")
   (get-field this :img))
 
 
 (defn bit-writeImage
-  [this ^BufferedImage img ^TranscoderOutput out]
-  (println "Hello world"))
+  [this ^BufferedImage img ^TranscoderOutput out])

@@ -2,8 +2,8 @@
   (:require [clojure.java.io :as io]
             [clojure.math :as math]
             [clojure.string :as str]
-            [org.svg2gif.b64 :as b64]
-            [org.svg2gif.gif :as gif]
+            [org.mushin.codecs :as b64]
+            [org.mushin.multimedia.gif :as gif]
             [java-time.api :as time])
   (:import [io.sf.carte.echosvg.transcoder TranscoderInput TranscoderException TranscoderOutput SVGAbstractTranscoder]
            [io.sf.carte.echosvg.transcoder.image PNGTranscoder]
@@ -15,10 +15,10 @@
            [java.io ByteArrayInputStream]
            [java.awt.geom AffineTransform]
            [java.awt.image BufferedImage RenderedImage]
-           [org.svg2gif BufferedImageTranscoder]))
+           [org.mushin.multimedia BufferedImageTranscoder]))
 
 
-(def  mushin-ns "urn:mushin")
+(def mushin-ns "urn:mushin")
 
 (defn open-svg-doc
   ^SVGDocument
@@ -57,7 +57,7 @@
     (.setDocumentURI clone (.getDocumentURI svg-doc))
     clone))
 
-(defn get-pipelined-gif
+(defn render-gif
   [svg-file gif-file]
   (let [svg-doc (open-svg-doc svg-file)
         virtual-height (let [{:keys [height]} (get-viewbox-of (.getDocumentElement svg-doc))]

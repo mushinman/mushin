@@ -1,7 +1,7 @@
 (ns org.mushin.multimedia.gif
   (:require [clojure.java.io :as io]
             [java-time.api :as time]
-            [org.svg2gif.colorspace :as cs])
+            [org.mushin.multimedia.colorspace :as cs])
   (:import [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
            [javax.imageio.metadata IIOMetadata IIOMetadataNode]
            [org.apache.commons.math3.ml.clustering KMeansPlusPlusClusterer DoublePoint MultiKMeansPlusPlusClusterer CentroidCluster Clusterable]
