@@ -65,28 +65,30 @@
             (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
         width (.getWidth img)
         height (.getHeight img)
-        checksum (let [rgb-array (int-array width)
-                       raw-byte-array (byte-array (* width 4))
-                       md (digest/create-sha256-digest)
-                       bb (buffers/set-byte-order (buffers/wrap-bytes raw-byte-array) ByteOrder/BIG_ENDIAN)]
-                   ;; TODO add certain metadata support like EXIF orientation. Would need to rotate the image
-                   ;; and add that information to the checksum.
-                   (dotimes [y height]
-                     (.getRGB img 0 y width 1 rgb-array 0 width)
-                     (buffers/copy-ints-to-byte-buffer! rgb-array bb)
-                     (digest/update-digest-buffer md raw-byte-array)
-                     (buffers/clear-byte-buffer bb))
-                   (digest/digest->b64 md))
+        resource-name (let [rgb-array (int-array width)
+                                raw-byte-array (byte-array (* width 4))
+                                md (digest/create-sha256-digest)
+                                bb (buffers/set-byte-order (buffers/wrap-bytes raw-byte-array) ByteOrder/BIG_ENDIAN)]
+                            ;; TODO add certain metadata support like EXIF orientation. Would need to rotate the image
+                            ;; and add that information to the checksum.
+                            (dotimes [y height]
+                              (.getRGB img 0 y width 1 rgb-array 0 width)
+                              (buffers/copy-ints-to-byte-buffer! rgb-array bb)
+                              (digest/update-digest-buffer md raw-byte-array)
+                              (buffers/clear-byte-buffer bb))
+                            (digest/digest->b64 md))
         output-file-path (files/create-temp-file "" "")]
-    (try
-      (with-open [temp-output-file (io/output-stream (str output-file-path))
-                  image-ios (ImageIO/createImageOutputStream temp-output-file)]
-        (ImageIO/write img (mime/mime-types mime-type) image-ios))
-      (resources/create-resource-from-file! xtdb-node output-file-path checksum mime-type)
-      (catch Exception ex
-        (throw ex))
-      (finally
-        (files/delete output-file-path)))))
+    (if-let [resource (resources/get-resource xtdb-node resource-name)]
+      resource
+      (try
+        (with-open [temp-output-file (io/output-stream (str output-file-path))
+                    image-ios (ImageIO/createImageOutputStream temp-output-file)]
+          (ImageIO/write img (mime/mime-types mime-type) image-ios))
+        (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
+        (catch Exception ex
+          (throw ex))
+        (finally
+          (files/delete output-file-path))))))
 
 (defn- create-resource-from-gif
   [^InputStream image-stream mime-type]
@@ -172,7 +174,7 @@
     (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
   (let [{:keys [tempfile filename]} image
         {:keys [xt/id]} (resources/create-resource-from-file! xtdb-node tempfile filename)]
-;(db/create-status! xtdb-node {:image id :text "Text"} user-id)
+                                        ;(db/create-status! xtdb-node {:image id :text "Text"} user-id)
     ))
 
 (defn create-media-status!

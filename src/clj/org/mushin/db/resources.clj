@@ -48,9 +48,9 @@
   [xtdb-node src-path name mime-type]
   (if-let [existing-resource (get-resource xtdb-node name)]
     existing-resource
-    (let [file (io/input-stream (if (string? src-path)
-                                  src-path
-                                  (str src-path)))
+    (let [src-path (if (string? src-path)
+                     (files/str->path src-path)
+                     src-path)
           mime-extension (or (mime/mime-types mime-type) (throw (ex-info "Invalid mime type" {:mime-type mime-type})))
           resource-path (get-resource-file-path (str name "." mime-extension))
           resource-path-str (str resource-path)
@@ -61,7 +61,7 @@
                :location resource-path-str}]
       (io/make-parents resource-path-str)
       ;; TODO modify this to support other methods of content saving.
-      (files/copy file resource-path)
+      (files/copy src-path resource-path)
       (db/execute-tx xtdb-node [[:put-docs :mushin.db/resources doc]])
       (select-keys doc [:xt/id :name]))))
 

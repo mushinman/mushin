@@ -7,6 +7,7 @@
     [criterium.core :as c]                                  ;; benchmarking
     [expound.alpha :as expound]
     [integrant.core :as ig]
+    [clojure.java.io :as io]
     [integrant.repl :refer [clear go halt prep init reset reset-all]]
     [integrant.repl.state :as state]
     [kit.api :as kit]
