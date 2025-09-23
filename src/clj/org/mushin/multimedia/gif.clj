@@ -440,7 +440,7 @@
         ;; A sample of lab-stream excluding transparent pixels.
         image-sample (into [] (comp
                                (filter some?)
-                               (random-sample (min 1.0 (/  200000.0 opaque-pixel-count))) ; TODO if the image is entirely tansparent or empty that will result in a div by 0.
+                               (random-sample (min 1.0 (/ 200000.0 opaque-pixel-count))) ; TODO if the image is entirely tansparent or empty that will result in a div by 0.
                                (map #(DoublePoint. %)))
                            lab-stream)
 

@@ -9,8 +9,9 @@
             [org.mushin.db.resources :as resources]
             [org.mushin.files :as files]
             [org.mushin.buffers :as buffers]
-            [org.mushin.mime :as mime]
             [org.mushin.digest :as digest]
+            [org.mushin.mime :as mime]
+            [org.mushin.multimedia.img :as img]
             [clojure.java.io :as io])
   (:import [java.nio.file Files]
            [java.io InputStream]
@@ -63,20 +64,7 @@
             ;; unless an error occurred, in which case img is null.
             (.close image-iis)
             (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
-        width (.getWidth img)
-        height (.getHeight img)
-        resource-name (let [rgb-array (int-array width)
-                                raw-byte-array (byte-array (* width 4))
-                                md (digest/create-sha256-digest)
-                                bb (buffers/set-byte-order (buffers/wrap-bytes raw-byte-array) ByteOrder/BIG_ENDIAN)]
-                            ;; TODO add certain metadata support like EXIF orientation. Would need to rotate the image
-                            ;; and add that information to the checksum.
-                            (dotimes [y height]
-                              (.getRGB img 0 y width 1 rgb-array 0 width)
-                              (buffers/copy-ints-to-byte-buffer! rgb-array bb)
-                              (digest/update-digest-buffer md raw-byte-array)
-                              (buffers/clear-byte-buffer bb))
-                            (digest/digest->b64 md))
+        resource-name (img/checksum-image img)
         output-file-path (files/create-temp-file "" "")]
     (if-let [resource (resources/get-resource xtdb-node resource-name)]
       resource
@@ -88,7 +76,31 @@
         (catch Exception ex
           (throw ex))
         (finally
-          (files/delete output-file-path))))))
+          (files/delete-if-exists output-file-path))))))
+
+(defn create-captioned-img
+  [^InputStream image-stream mime-type xtdb-node]
+  (let [image-iis (ImageIO/createImageInputStream image-stream)
+        img (ImageIO/read image-iis)
+        _ (when-not img
+            ;; For some reason, the above overload of imageio.read() closes the input stream...
+            ;; unless an error occurred, in which case img is null.
+            (.close image-iis)
+            (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
+        resource-name (let [checksum (img/checksum-image img)]
+                        (if-let [resource (resources/get-resource xtdb-node checksum)]
+                          resource
+                          checksum))
+        output-file-path (files/create-temp-file "" "")]
+    (try
+      (with-open [temp-output-file (io/output-stream (str output-file-path))
+                  image-ios (ImageIO/createImageOutputStream temp-output-file)]
+        (ImageIO/write img (mime/mime-types mime-type) image-ios))
+      (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
+      (catch Exception ex
+        (throw ex))
+      (finally
+        (files/delete-if-exists output-file-path)))))
 
 (defn- create-resource-from-gif
   [^InputStream image-stream mime-type]
