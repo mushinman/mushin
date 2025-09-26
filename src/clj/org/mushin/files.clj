@@ -1,7 +1,13 @@
 (ns org.mushin.files
-  (:import [java.nio.file CopyOption Files Path Paths StandardCopyOption]
+  (:import [java.nio.file CopyOption Files Path Paths StandardCopyOption LinkOption]
            [java.nio.file.attribute FileAttribute]
-           [java.io File]))
+           [java.io File]
+           [java.net URI]))
+
+(defn path
+  ^Path
+  [^String value]
+  (Paths/get value (into-array String [])))
 
 (defn move
   ^Path
@@ -15,8 +21,8 @@
 
 (defn str->path
   ^Path
-  [^String path]
-  (Paths/get path (into-array String [])))
+  [^String value]
+  (path value))
 
 (defn create-temp-file
   ^Path
@@ -32,4 +38,21 @@
   [^Path path]
   (Files/deleteIfExists path))
 
-(create-temp-file "" "")
+(defn path-combine
+  [^Path path & others]
+  (if (empty? others)
+    path
+    (recur (.resolve path (first others)) (rest others))))
+
+(defn exists
+  [^Path path & options]
+  (Files/exists path (into-array LinkOption options)))
+
+(defn not-exists
+  [^Path path & options]
+  (Files/notExists path (into-array LinkOption options)))
+
+(defn path->uri
+  ^URI
+  [^Path path]
+  (.toUri path))

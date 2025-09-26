@@ -10,6 +10,7 @@
             [org.mushin.files :as files]
             [org.mushin.buffers :as buffers]
             [org.mushin.digest :as digest]
+            [org.mushin.multimedia.svg :as svg]
             [org.mushin.mime :as mime]
             [org.mushin.multimedia.img :as img]
             [clojure.java.io :as io])
@@ -78,7 +79,7 @@
         (finally
           (files/delete-if-exists output-file-path))))))
 
-(defn create-captioned-img
+(defn create-captioned-img-resource
   [^InputStream image-stream mime-type xtdb-node]
   (let [image-iis (ImageIO/createImageInputStream image-stream)
         img (ImageIO/read image-iis)
@@ -97,6 +98,19 @@
                   image-ios (ImageIO/createImageOutputStream temp-output-file)]
         (ImageIO/write img (mime/mime-types mime-type) image-ios))
       (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
+
+      ;; We need to create a resource for the image with the caption.
+      ;; We render with a reference to the temporary file since it's
+      ;; easier to set up than rendering with the image's final location.
+      (let [img-width (.getWidth img)
+            img-height (.getHeight img)
+            captioned-img (svg/render-document (svg/make-meme-svg img-width img-height (files/path->uri output-file-path) "Hello world" 150.0) img-width (+ img-height 150))
+            resource-name (let [checksum (img/checksum-image captioned-img)]
+                            (if-let [resource (resources/get-resource xtdb-node checksum)]
+                              resource
+                              checksum))
+            ;; TODO i have to figure out how to build the URI to the resource....
+            ])
       (catch Exception ex
         (throw ex))
       (finally

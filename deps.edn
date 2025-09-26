@@ -77,11 +77,7 @@
                                 }
                   :extra-paths ["env/dev/clj" "env/dev/resources" "test/clj" "target/classes"]
                   ;; Auto-compile the specific gen-class ns when you start with -M:dev
-                  :main-opts [
-                              "-e" "(binding [*compile-path* (System/getProperty \"clojure.compile.path\")]
-                (compile 'org.mushin.image.buffered-image-transcoder))"
-                              ]
-                  :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED" "-Dclojure.compile.path=target/classes"]}
+                                    :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED" "-Dclojure.compile.path=target/classes"]}
            :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.1.0"}}
                    :main-opts  ["-m" "nrepl.cmdline" "-i"]
                    :jvm-opts   ["--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED"]}
