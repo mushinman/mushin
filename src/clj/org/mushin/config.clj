@@ -5,7 +5,6 @@
    [malli.core :as mallc]
    [malli.experimental.time :as malt]
    [org.mushin.db.users :as users]
-   [org.mushin.db.resources :as resources]
    [org.mushin.db.remember-me :as remember-me]
    [org.mushin.db.statuses :as statuses]))
 
@@ -21,7 +20,7 @@
 (defn init-db-malli!
   "Adds database schemas to the malli registry."
   []
-  (let [all-schemas (merge users/user-schema statuses/statuses-schema resources/resources-schema remember-me/remember-me)]
+  (let [all-schemas (merge users/user-schema statuses/statuses-schema remember-me/remember-me)]
     ;; Add our DB schemas.
     (mallr/set-default-registry!
      (mallr/composite-registry (mallc/default-schemas) (malt/schemas) all-schemas (mallr/mutable-registry schema-store)))))

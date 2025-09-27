@@ -1,19 +1,21 @@
 (ns org.mushin.web.controllers.statuses
-  (:require [ring.util.http-response :refer [unauthorized! created ok not-found! accepted no-content]]
+  (:require [ring.util.http-response :refer [unauthorized! created ok not-found! accepted no-content bad-request!]]
             [org.mushin.db.statuses :as db]
             [org.mushin.db.users :as user-db]
             [clojure.tools.logging :as log]
             [org.mushin.web.auth-utils :as auth-utils]
             [org.mushin.db.util :as db-u]
             [xtdb.api :as xt]
-            [org.mushin.db.resources :as resources]
             [org.mushin.files :as files]
-            [org.mushin.buffers :as buffers]
-            [org.mushin.digest :as digest]
+            [org.mushin.resources.resource-map :as res]
             [org.mushin.multimedia.svg :as svg]
             [org.mushin.mime :as mime]
             [org.mushin.multimedia.img :as img]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [org.mushin.digest :as digest]
+            [org.mushin.codecs :as codecs]
+            [org.mushin.multimedia.gif :as gif]
+            [org.mushin.resources.resource-map :as rm])
   (:import [java.nio.file Files]
            [java.io InputStream]
            [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
@@ -56,76 +58,110 @@
   [^InputStream image-stream]
   true) ; TODO
 
-(defn create-resource-from-static-img
-  [^InputStream image-stream mime-type xtdb-node]
-  (let [image-iis (ImageIO/createImageInputStream image-stream)
-        img (ImageIO/read image-iis)
-        _ (when-not img
-            ;; For some reason, the above overload of imageio.read() closes the input stream...
-            ;; unless an error occurred, in which case img is null.
-            (.close image-iis)
-            (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
-        resource-name (img/checksum-image img)
-        output-file-path (files/create-temp-file "" "")]
-    (if-let [resource (resources/get-resource xtdb-node resource-name)]
-      resource
-      (try
-        (with-open [temp-output-file (io/output-stream (str output-file-path))
-                    image-ios (ImageIO/createImageOutputStream temp-output-file)]
-          (ImageIO/write img (mime/mime-types mime-type) image-ios))
-        (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
-        (catch Exception ex
-          (throw ex))
-        (finally
-          (files/delete-if-exists output-file-path))))))
+(defn create-resource-from-static-img!
+  [^BufferedImage img resource-map mime-type]
+  (let [mime-ext (mime/mime-type-to-extensions mime-type)
+        resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)]
+    (if (res/exists? resource-map resource-name)
+      resource-name
+      (let [output-file-path (files/create-temp-file "" "")]
+        (try
+          (with-open [temp-output-file (io/output-stream (str output-file-path))
+                      image-ios (ImageIO/createImageOutputStream temp-output-file)]
+            (img/write-img-from-mime-type img mime-type image-ios))
+          (res/create! resource-map resource-name output-file-path)
+          (catch Exception ex
+            (throw ex))
+          (finally
+            (files/delete-if-exists output-file-path)))))))
 
-(defn create-captioned-img-resource
-  [^InputStream image-stream mime-type xtdb-node]
-  (let [image-iis (ImageIO/createImageInputStream image-stream)
-        img (ImageIO/read image-iis)
-        _ (when-not img
-            ;; For some reason, the above overload of imageio.read() closes the input stream...
-            ;; unless an error occurred, in which case img is null.
-            (.close image-iis)
-            (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
-        resource-name (let [checksum (img/checksum-image img)]
-                        (if-let [resource (resources/get-resource xtdb-node checksum)]
-                          resource
-                          checksum))
-        output-file-path (files/create-temp-file "" "")]
-    (try
-      (with-open [temp-output-file (io/output-stream (str output-file-path))
-                  image-ios (ImageIO/createImageOutputStream temp-output-file)]
-        (ImageIO/write img (mime/mime-types mime-type) image-ios))
-      (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
+(defn create-resource-for-gif!
+  [^InputStream gif-stream resource-map]
+  (let [gif (gif/get-gif-from-stream gif-stream) ;; TODO catch exceptions and rethrow.
+        resource-name (str (loop [i 0
+                                  md (digest/create-sha256-digest)
+                                  scenes (:scenes gif)]
+                             ;; Digest every frame.
+                             ;; TODO similar to the static frames we probably want to add some metadata
+                             ;; to the checksum, like if it loops or not.
+                             (if-not (= i (count gif))
+                               (do (img/digest-img! (:frame (nth scenes i)) md)
+                                   (recur (inc i) md scenes))
+                               (codecs/bytes->b64u (digest/digest->bytes md))))
+                           ".gif")]
+    (if (res/exists? resource-map resource-name)
+      resource-name
+      (let [output-file-path (files/create-temp-file "" "")]
+        (try
+          (with-open [temp-output-file (io/output-stream (str output-file-path))
+                      image-ios (ImageIO/createImageOutputStream temp-output-file)]
+            (gif/write-gif-to image-ios gif))
+          (res/create! resource-map resource-name output-file-path)
+          (catch Exception ex
+            (throw ex))
+          (finally
+            (files/delete-if-exists output-file-path)))))))
 
-      ;; We need to create a resource for the image with the caption.
-      ;; We render with a reference to the temporary file since it's
-      ;; easier to set up than rendering with the image's final location.
-      (let [img-width (.getWidth img)
-            img-height (.getHeight img)
-            captioned-img (svg/render-document (svg/make-meme-svg img-width img-height (files/path->uri output-file-path) "Hello world" 150.0) img-width (+ img-height 150))
-            resource-name (let [checksum (img/checksum-image captioned-img)]
-                            (if-let [resource (resources/get-resource xtdb-node checksum)]
-                              resource
-                              checksum))
-            ;; TODO i have to figure out how to build the URI to the resource....
-            ])
-      (catch Exception ex
-        (throw ex))
-      (finally
-        (files/delete-if-exists output-file-path)))))
+(defn create-resource-from-uploaded-file!
+  [file-location resource-map]
+  (let [file-location-path (files/path file-location)
+        file-mime-type (files/probe-content-type file-location-path)]
+    (cond
+      (some #(= % file-mime-type) ["image/png" "image/jpeg"])
+      (if-let [img (ImageIO/read (io/file file-location))]
+        (create-resource-from-static-img! img resource-map file-mime-type)
+        ;; I think img being nil means the image was invalid?
+        (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
+
+      (= file-mime-type "image/gif")
+      (with-open [gif-is (io/input-stream file-location)]
+        (create-resource-for-gif! gif-is resource-map))
+
+      :else
+      (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
+
+
+;; (defn create-captioned-img-resource
+;;   [^InputStream image-stream mime-type xtdb-node]
+;;   (let [image-iis (ImageIO/createImageInputStream image-stream)
+;;         img (ImageIO/read image-iis)
+;;         _ (when-not img
+;;             ;; For some reason, the above overload of imageio.read() closes the input stream...
+;;             ;; unless an error occurred, in which case img is null.
+;;             (.close image-iis)
+;;             (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
+;;         resource-name (let [checksum (img/checksum-image img)]
+;;                         (if-let [resource (resources/get-resource xtdb-node checksum)]
+;;                           resource
+;;                           checksum))
+;;         output-file-path (files/create-temp-file "" "")]
+;;     (try
+;;       (with-open [temp-output-file (io/output-stream (str output-file-path))
+;;                   image-ios (ImageIO/createImageOutputStream temp-output-file)]
+;;         (ImageIO/write img (mime/mime-types mime-type) image-ios))
+;;       (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
+
+;;       ;; We need to create a resource for the image with the caption.
+;;       ;; We render with a reference to the temporary file since it's
+;;       ;; easier to set up than rendering with the image's final location.
+;;       (let [img-width (.getWidth img)
+;;             img-height (.getHeight img)
+;;             captioned-img (svg/render-document (svg/make-meme-svg img-width img-height (files/path->uri output-file-path) "Hello world" 150.0) img-width (+ img-height 150))
+;;             resource-name (let [checksum (img/checksum-image captioned-img)]
+;;                             (if-let [resource (resources/get-resource xtdb-node checksum)]
+;;                               resource
+;;                               checksum))
+;;             ;; TODO i have to figure out how to build the URI to the resource....
+;;             ])
+;;       (catch Exception ex
+;;         (throw ex))
+;;       (finally
+;;         (files/delete-if-exists output-file-path)))))
 
 (defn- create-resource-from-gif
   [^InputStream image-stream mime-type]
   nil)
 
-(defn- create-resource-from-upload
-  [^InputStream image-stream mime-type xtdb-node]
-  (cond
-    (= mime-type :gif) (create-resource-from-gif image-stream mime-type)
-    (some #(= mime-type %) [:png :jpg]) (create-resource-from-static-img image-stream mime-type xtdb-node)
-    :else (throw (ex-info "Mime type is not supported" {:mime-type mime-type}))))
 
 (defn get-timeline
   [{:keys [xtdb-node]}
@@ -193,15 +229,6 @@
   )
 
 ;; TODO come back to this.
-(defn create-picture-post!
-  [{:keys [xtdb-node]}
-   {{{{:keys [image]} :status} :body} :parameters {:keys [user-id]} :session}]
-  (when-not user-id
-    (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
-  (let [{:keys [tempfile filename]} image
-        {:keys [xt/id]} (resources/create-resource-from-file! xtdb-node tempfile filename)]
-                                        ;(db/create-status! xtdb-node {:image id :text "Text"} user-id)
-    ))
 
 (defn create-media-status!
   [xtdb-node user-id {:keys [tempfile filename]} text reply-to async?]
@@ -221,7 +248,7 @@
 
 ;; TODO
 (defn create-status-post!
-  [{:keys [xtdb-node]}
+  [{:keys [xtdb-node resource-map]}
    {{{{:keys [text media]} :content :keys [reply-to]} :body} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
   (prn req)
   (when-not user-id

@@ -34,10 +34,19 @@
       (codecs/hex->bytes)
       (codecs/bytes->b64)))
 
+(defn digest->bytes
+  [^MessageDigest md]
+  (.digest md))
+
 (defn digest->b64
   [^MessageDigest md]
   (-> (.digest md)
       (codecs/bytes->b64)))
+
+(defn digest->b64u
+  [^MessageDigest md]
+  (-> (.digest md)
+      (codecs/bytes->b64u)))
 
 (defn eq
   "Compare two bytestreams in constant time."

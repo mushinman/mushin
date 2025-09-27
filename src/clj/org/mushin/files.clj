@@ -16,8 +16,18 @@
 
 (defn copy
   ^Path
-  [^Path src ^Path dst]
-  (Files/copy src dst (into-array CopyOption [])))
+  [^Path src ^Path dst & copy-options]
+  (Files/copy src dst (into-array CopyOption copy-options)))
+
+(defn get-path
+  ^String
+  [^File file]
+  (.getPath file))
+
+(defn probe-content-type
+  ^String
+  [^Path file-path]
+  (Files/probeContentType file-path))
 
 (defn str->path
   ^Path

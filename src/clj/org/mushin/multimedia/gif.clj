@@ -17,7 +17,7 @@
 (defonce logical-screen-descriptor "LogicalScreenDescriptor")
 
 (defrecord GifSequenceWriter
-    [gif-writer]
+    [^ImageWriter gif-writer]
   Closeable (close [_] (.endWriteSequence gif-writer)))
 
 (defn- is-indexed
@@ -82,6 +82,9 @@
   []
   (-> (ImageIO/getImageWritersBySuffix "gif") iterator-seq first))
 
+;(defn create-)
+;
+
 (defn- write-color-model!
   ^IIOMetadataNode
   [^IndexColorModel icm ^IIOMetadataNode node]
@@ -109,37 +112,34 @@
                 (time/duration (* (max (Integer/parseInt (.getAttribute gce "delayTime")) 1) 10) :millis)))
             (range (.getNumImages reader true))))))
 
-(defn get-gif-frames
-  ([^ImageInputStream gif-stream]
-   (let [reader (doto (get-reader)
-                  (.setInput gif-stream))]
-     (get-gif-frames gif-stream reader)))
-  ([^ImageInputStream gif-stream ^ImageReader reader]
-   (mapv (fn [^long i]
-           (let [frame-metadata (.getImageMetadata reader i)
-                 root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
-                 gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
-             ;; Here we clamp to 1 ms because it's technically possible for a gif to have a frame time of 0ms.
-             (cond-> {:x-offset (Integer/parseInt (-> (get-node! root "ImageDescriptor")
-                                                      (.getAttributes)
-                                                      (.getNamedItem "imageLeftPosition")
-                                                      (.getNodeValue)))
-                      :y-offset (Integer/parseInt (-> (get-node! root "ImageDescriptor")
-                                                      (.getAttributes)
-                                                      (.getNamedItem "imageTopPosition")
-                                                      (.getNodeValue)))
-                      :colortable-is-local (pos? (.getLength (.getElementsByTagName root "LocalColorTable")))
-                      :duration (time/duration (* (max (Integer/parseInt (.getAttribute gce "delayTime")) 1) 10) :millis)
-                      :frame    (.read reader i)
-                      :disposal (or (.getAttribute gce "disposalMethod") "none")}
-               (and (some? gce) (= (.getAttribute gce "transparentColorFlag") "TRUE")) (assoc :transparent-color-index (Integer/parseInt (.getAttribute gce "transparentColorIndex"))))))
-         (range (.getNumImages reader true)))))
+(defn get-gif-frames-from-reader
+  [^ImageReader reader]
+  (mapv (fn [^long i]
+          (let [frame-metadata (.getImageMetadata reader i)
+                root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
+                gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
+            ;; Here we clamp to 1 ms because it's technically possible for a gif to have a frame time of 0ms.
+            (cond-> {:x-offset (Integer/parseInt (-> (get-node! root "ImageDescriptor")
+                                                     (.getAttributes)
+                                                     (.getNamedItem "imageLeftPosition")
+                                                     (.getNodeValue)))
+                     :y-offset (Integer/parseInt (-> (get-node! root "ImageDescriptor")
+                                                     (.getAttributes)
+                                                     (.getNamedItem "imageTopPosition")
+                                                     (.getNodeValue)))
+                     :colortable-is-local (pos? (.getLength (.getElementsByTagName root "LocalColorTable")))
+                     :duration (time/duration (* (max (Integer/parseInt (.getAttribute gce "delayTime")) 1) 10) :millis)
+                     :frame    (.read reader i)
+                     :disposal (or (.getAttribute gce "disposalMethod") "none")}
+              (and (some? gce) (= (.getAttribute gce "transparentColorFlag") "TRUE")) (assoc :transparent-color-index (Integer/parseInt (.getAttribute gce "transparentColorIndex"))))))
+        (range (.getNumImages reader true))))
 
-(defn get-gif-frames-ez
-  [path]
-  (with-open [fs (io/input-stream path)
-              iis (ImageIO/createImageInputStream fs)]
-    (get-gif-frames iis)))
+(defn get-gif-frames
+  [^ImageInputStream gif-stream]
+  (let [reader (doto (get-reader)
+                 (.setInput gif-stream))]
+    (get-gif-frames-from-reader reader)))
+
 
 (defn write-to-sequence!
   [^GifSequenceWriter writer {:keys [duration frame disposal x-offset y-offset colortable-is-local transparent-color-index]} i]
@@ -211,6 +211,12 @@
     (write-to-sequence! writer (first frames) i)
     (recur writer (rest frames) (inc i))))
 
+(defn create-gif-reader
+  ^ImageReader
+  [^ImageInputStream iis]
+  (doto (get-reader)
+    (.setInput iis)))
+
 (defn create-gif-sequence
   [^ImageOutputStream output-stream width height background-index ^IndexColorModel global-color-table]
   (when (and background-index (not global-color-table))
@@ -249,7 +255,7 @@
 
 (defn write-gif-to
   [^ImageOutputStream output-stream {:keys [background-index global-color-table width height scenes]}]
-  (let [writer (create-gif-sequence output-stream width height background-index global-color-table)]
+  (with-open [writer (create-gif-sequence output-stream width height background-index global-color-table)]
     (write-frames-to-sequence! writer scenes 0)))
 
 (defn- remap-indexed-image-to-gct
@@ -341,7 +347,6 @@
                   (dotimes [i n]
                     (let [e (.item nl i)
                           index (Integer/parseInt (.getAttribute e "index"))]
-                      ;(println "RGB index " index "(" (Integer/parseInt (.getAttribute e "red")) "," (Integer/parseInt (.getAttribute e "green")) "," (Integer/parseInt (.getAttribute e "blue")) ")")
                       (aset-byte reds   index (unchecked-byte (Integer/parseInt (.getAttribute e "red"))))
                       (aset-byte greens index (unchecked-byte (Integer/parseInt (.getAttribute e "green"))))
                       (aset-byte blues  index (unchecked-byte (Integer/parseInt (.getAttribute e "blue"))))))
@@ -349,7 +354,7 @@
       (cond->
           {:width (some-> lsd (.getAttribute "logicalScreenWidth") not-empty Integer/parseInt)
            :height (some-> lsd (.getAttribute "logicalScreenHeight") not-empty Integer/parseInt)
-           :scenes (let [gif-scenes (get-gif-frames gif-iis reader)]
+           :scenes (let [gif-scenes (get-gif-frames-from-reader  reader)]
                      (if gct
                        (mapv (fn [{:keys [colortable-is-local frame transparent-color-index] :as scene}]
                                (if colortable-is-local
@@ -478,25 +483,25 @@
                                     255))))
     palettized-image))
 
-(defn dump-gif-frames-to
-  [gif-file dir]
-  (with-open [gif (io/input-stream gif-file)
-              iis (ImageIO/createImageInputStream gif)]
-    (loop [frames (mapv :frame (get-gif-frames iis))
-           i 0]
-      (when-not (empty? frames)
-        (with-open [png (io/output-stream (str dir "/" i ".png"))
-                    png-ios (ImageIO/createImageOutputStream png)]
-          (ImageIO/write (first frames) "PNG" png-ios))
-        (recur (rest frames) (inc i))))))
+;; (defn dump-gif-frames-to
+;;   [gif-file dir]
+;;   (with-open [gif (io/input-stream gif-file)
+;;               iis (ImageIO/createImageInputStream gif)]
+;;     (loop [frames (mapv :frame (get-gif-frames iis))
+;;            i 0]
+;;       (when-not (empty? frames)
+;;         (with-open [png (io/output-stream (str dir "/" i ".png"))
+;;                     png-ios (ImageIO/createImageOutputStream png)]
+;;           (ImageIO/write (first frames) "PNG" png-ios))
+;;         (recur (rest frames) (inc i))))))
 
-(defn dump-gif
-  [gif-file dir]
-  (with-open [gif-is (io/input-stream gif-file)]
-    (loop [frames (:scenes (get-gif-from-stream gif-is))
-           i 0]
-      (when-not (empty? frames)
-        (with-open [png (io/output-stream (str dir "/" i ".png"))
-                    png-ios (ImageIO/createImageOutputStream png)]
-          (ImageIO/write (:frame (first frames)) "PNG" png-ios))
-        (recur (rest frames) (inc i))))))
+;; (defn dump-gif
+;;   [gif-file dir]
+;;   (with-open [gif-is (io/input-stream gif-file)]
+;;     (loop [frames (:scenes (get-gif-from-stream gif-is))
+;;            i 0]
+;;       (when-not (empty? frames)
+;;         (with-open [png (io/output-stream (str dir "/" i ".png"))
+;;                     png-ios (ImageIO/createImageOutputStream png)]
+;;           (ImageIO/write (:frame (first frames)) "PNG" png-ios))
+;;         (recur (rest frames) (inc i))))))

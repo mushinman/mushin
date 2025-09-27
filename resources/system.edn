@@ -49,6 +49,7 @@
   :env       #ig/ref :system/env
   :metrics   #ig/ref :metrics/prometheus
   :xtdb-node #ig/ref :db.xtdb/node
+  :resource-map #ig/ref :org.mushin.resources/provider
   :mushin/jwks      #ig/ref :org.mushin.web.sign/jwk}
 
  :router/routes
@@ -63,6 +64,8 @@
                       :default [{:job     #ig/ref :org.mushin.db.tasks/tasks
                                  :trigger #cronut/cron "0 0 1 * * ?"}]}
   :disallowConcurrentExecution? true}
+
+ :org.mushin.resources/provider {:local [:path "/home/mm/content"]} ; HERE: Change this.
 
  ;; Database cleanup tasks.
  :org.mushin.db.tasks/tasks

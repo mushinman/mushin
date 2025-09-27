@@ -21,4 +21,5 @@
 
 (defmethod ig/resume-key :org.mushin.db.tasks/tasks
   [key opts old-opts old-impl]
+  (log/info "Resuming suspended db tasks")
   (ig-utils/resume-handler key opts old-opts old-impl))
