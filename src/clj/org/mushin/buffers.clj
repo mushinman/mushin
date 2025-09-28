@@ -14,19 +14,17 @@
   (.order bb byte-order)
   bb)
 
-
 (defn reset-byte-buffer
   ^ByteBuffer
   [^ByteBuffer bb]
   (.reset bb)
   bb)
 
-(defn clear-byte-buffer
+(defn clear-byte-buffer!
   ^ByteBuffer
   [^ByteBuffer bb]
   (.clear bb)
   bb)
-
 
 (defn copy-ints-to-byte-buffer!
   ^ByteBuffer

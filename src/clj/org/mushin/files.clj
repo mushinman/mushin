@@ -49,10 +49,29 @@
   (Files/deleteIfExists path))
 
 (defn path-combine
+  "Concatenate the path with the provided path parts.
+
+  # Arguments
+  - `path`: The base path
+  - `others`: A sequence of path parts.
+
+  # Return value
+  `path` concatenated with `others`."
+  ^Path
   [^Path path & others]
   (if (empty? others)
     path
     (recur (.resolve path (first others)) (rest others))))
+
+(defn to-absolute-path
+  ^Path
+  [^Path p]
+  (.toAbsolutePath p))
+
+(defn to-uri
+  ^URI
+  [^Path p]
+  (.toUri p))
 
 (defn exists
   [^Path path & options]

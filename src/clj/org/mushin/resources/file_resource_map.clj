@@ -5,13 +5,23 @@
   (:import [java.nio.file Path]
            [java.io InputStream File]))
 
-(defn- get-resource-file-path [base file-name]
-  (let [name-length (count file-name)]
+(defn- get-resource-file-path
+  "For a given base file path to the resource folder and the name of the resource
+generate a unique file path for the resource.
+  # Arguments:
+  - `base`: A java Path to the resources folder.
+  - `resource-name`: The name of the resource.
+
+  # Return value
+  A unique java Path for the provided resource name."
+  ^Path
+  [^Path base resource-name]
+  (let [name-length (count resource-name)]
     (files/path-combine base
-                        (if (> name-length 1) (subs file-name 0 2) (subs file-name 0 1))
-                        (if (> name-length 3) (subs file-name 2 4) "")
-                        (if (> name-length 5) (subs file-name 4 6) "")
-                        file-name)))
+                        (if (> name-length 1) (subs resource-name 0 2) (subs resource-name 0 1))
+                        (if (> name-length 3) (subs resource-name 2 4) "")
+                        (if (> name-length 5) (subs resource-name 4 6) "")
+                        resource-name)))
 
 ; (get-resource-file-path (files/path "content") "vyk1C6u3pcdfTIlvEFSdjvHBiymJBxUuvcZj3BR5Ol.png")
 

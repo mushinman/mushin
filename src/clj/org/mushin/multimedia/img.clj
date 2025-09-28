@@ -59,15 +59,15 @@
        (.getRGB img 0 y width 1 rgb-array 0 width)
        (buffers/copy-ints-to-byte-buffer! rgb-array bb)
        (digest/update-digest-buffer md raw-byte-array)
-       (buffers/clear-byte-buffer bb))
+       (buffers/clear-byte-buffer! bb))
      md))
   ([^BufferedImage img]
-   (digest-img img (digest/create-sha256-digest))))
+   (digest-img! img (digest/create-sha256-digest))))
 
 (defn checksum-image
   ^bytes
   [^BufferedImage img]
-  (digest/digest->bytes (digest-img img)))
+  (digest/digest->bytes (digest-img! img)))
 
 
 ;(defn copy-frame
