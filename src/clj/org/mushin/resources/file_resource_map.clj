@@ -1,6 +1,7 @@
 (ns org.mushin.resources.file-resource-map
   (:require [org.mushin.files :as files]
             [org.mushin.resources.resource-map :as interface]
+            [lambdaisland.uri :refer [join]]
             [clojure.java.io :as io])
   (:import [java.nio.file Path]
            [java.io InputStream File]))
@@ -23,10 +24,9 @@ generate a unique file path for the resource.
                         (if (> name-length 5) (subs resource-name 4 6) "")
                         resource-name)))
 
-; (get-resource-file-path (files/path "content") "vyk1C6u3pcdfTIlvEFSdjvHBiymJBxUuvcZj3BR5Ol.png")
 
 (defrecord FileSystemResourceMap
-    [^Path base-path]
+    [^Path base-path resource-map-url-base]
   interface/ResourceMap
   (create! [this name resource-data]
     (let [resource-path (get-resource-file-path (:base-path this) name)
@@ -46,5 +46,8 @@ generate a unique file path for the resource.
     (files/delete-if-exists (get-resource-file-path (:base-path this) name)))
   (exists? [this name]
     (files/exists (get-resource-file-path (:base-path this) name)))
+  (to-url [this name]
+    (when (interface/exists? this name)
+      (join resource-map-url-base (:resource-map-url-base this) (get-resource-file-path (:base-path this) name))))
   (open [this name]
     (io/input-stream (str (get-resource-file-path (:base-path this) name)))))

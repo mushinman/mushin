@@ -1,17 +1,18 @@
-(ns org.mushin.resources.provider
+(ns org.mushin.resources
   (:require [integrant.core :as ig]
             [clojure.tools.logging :as log]
             [org.mushin.resources.file-resource-map :as fsm]
             [org.mushin.files :as files]
+            [lambdaisland.uri :refer [uri]]
             [kit.ig-utils :as ig-utils]))
 
-
-(defmethod ig/init-key :org.mushin.resources/provider [_ {:keys [location]}]
+(defmethod ig/init-key :org.mushin.resources/provider [_ location]
   (log/info "Initializing the resource store provider...")
   (cond
-    (contains? location :path) (do
-                                 (log/info "Create filesystem resource provider with location:" {:path (location :path) })
-                                 (fsm/->FileSystemResourceMap (files/path (location :path))))
+    (contains? location :local) (let [{:keys [path base-url] :as config} (:local location)]
+                                  (log/info "Create filesystem resource provider with config:" config)
+                                  (fsm/->FileSystemResourceMap (files/path path) (uri base-url)))
+
     :else (throw (ex-info "Unrecognized resource store provider settings" {:settings location}))))
 
 (defmethod ig/suspend-key! :org.mushin.resources/provider  [_ _]

@@ -52,6 +52,8 @@
   :resource-map #ig/ref :org.mushin.resources/provider
   :mushin/jwks      #ig/ref :org.mushin.web.sign/jwk}
 
+ ;:org.mushin/host "localhost"
+
  :router/routes
  {:routes #ig/refset :reitit/routes}
 
@@ -65,7 +67,10 @@
                                  :trigger #cronut/cron "0 0 1 * * ?"}]}
   :disallowConcurrentExecution? true}
 
- :org.mushin.resources/provider {:local [:path "/home/mm/content"]} ; HERE: Change this.
+ :org.mushin.resources/provider
+ {:local
+  {:path "/var/www/mushin"
+   :base-url "http://localhost"}} ; HERE: Change this.
 
  ;; Database cleanup tasks.
  :org.mushin.db.tasks/tasks

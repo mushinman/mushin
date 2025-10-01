@@ -189,7 +189,7 @@ image { image-rendering: auto; }")
             rendered-caption-img-name (create-resource-from-static-img!
                                        (svg/render-document
                                         (make-meme-svg width height
-                                                       (files/to-uri output-file-path) text caption-pixel-height) width full-img-height)
+                                                       (files/path->uri output-file-path) text caption-pixel-height) width full-img-height)
                                        resource-map mime-type)
             ]
         )
