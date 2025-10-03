@@ -143,7 +143,6 @@ image { image-rendering: auto; }")
       (.appendChild root txt))
     doc))
 
-
 (defn- verify-image-upload
   [^InputStream image-stream]
   true) ; TODO
@@ -154,7 +153,7 @@ image { image-rendering: auto; }")
         resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)]
     (if (res/exists? resource-map resource-name)
       resource-name
-      (let [output-file-path (files/create-temp-file "" "")]
+      (let [output-file-path (files/create-temp-file)]
         (try
           (with-open [temp-output-file (io/output-stream (str output-file-path))
                       image-ios (ImageIO/createImageOutputStream temp-output-file)]
@@ -169,7 +168,7 @@ image { image-rendering: auto; }")
   [^BufferedImage img resource-map mime-type text ratio]
   (let [mime-ext (mime/mime-type-to-extensions mime-type)
         resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)
-        output-file-path (files/create-temp-file "" "")]
+        output-file-path (files/create-temp-file)]
     (try
       ;; Unlike in the non-captioned variant we unconditionally create the temp image
       ;; since we'll need it to render the captioned image.
@@ -182,18 +181,31 @@ image { image-rendering: auto; }")
         resource-name
         (res/create! resource-map resource-name output-file-path))
 
-      (let [width (.getWidth img)
+      (let [;; Save the captioned version of the image, the SVG.
+            width (.getWidth img)
             height (.getHeight img)
             caption-pixel-height (* height (/ ratio 100.0))
             full-img-height (+ caption-pixel-height height)
             rendered-caption-img-name (create-resource-from-static-img!
                                        (svg/render-document
                                         (make-meme-svg width height
-                                                       (files/path->uri output-file-path) text caption-pixel-height) width full-img-height)
+                                                       (files/path->uri output-file-path) text caption-pixel-height)
+                                        width full-img-height)
                                        resource-map mime-type)
-            ]
-        )
-      {:base-img resource-name :captioned-img nil :svg-doc :nil}
+
+            caption-svg-name
+            (let [temp-svg (files/create-temp-file)]
+              (try
+                (svg/write-svgdoc-to-file! (make-meme-svg width height
+                                                          (res/to-url resource-map resource-name) text caption-pixel-height)
+                                           temp-svg)
+                (let [resource-name (str (digest/digest->b64u (digest/digest-file temp-svg)) ".svg")]
+                  (res/create! resource-map resource-name temp-svg))
+                (catch Exception e
+                  (throw e))
+                (finally
+                  (files/delete-if-exists temp-svg))))]
+        {:base-img resource-name :captioned-img rendered-caption-img-name :svg-doc caption-svg-name})
       (catch Exception ex
         (throw ex))
       (finally
@@ -211,7 +223,7 @@ image { image-rendering: auto; }")
                              (if-not (= i (count gif))
                                (do (img/digest-img! (:frame (nth scenes i)) md)
                                    (recur (inc i) md scenes))
-                               (codecs/bytes->b64u (digest/digest->bytes md))))
+                               (digest/digest->b64u md)))
                            ".gif")]
     (if (res/exists? resource-map resource-name)
       resource-name
@@ -226,7 +238,19 @@ image { image-rendering: auto; }")
           (finally
             (files/delete-if-exists output-file-path)))))))
 
+(defn create-captioned-resources-from-uploaded-file!
+  [file-location resource-map {:keys [text ratio]}]
+  (let [file-location-path (files/path file-location)
+        file-mime-type (files/probe-content-type file-location-path)]
+    (cond
+      (some #(= % file-mime-type) ["image/png" "image/jpeg"])
+      (if-let [img (ImageIO/read (io/file file-location))]
+        (create-captioned-static-img-resource! img resource-map file-mime-type text ratio)
+        ;; I think img being nil means the image was invalid?
+        (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
 
+      :else
+      (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
 
 (defn create-resource-from-uploaded-file!
   [file-location resource-map]

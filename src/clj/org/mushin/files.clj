@@ -1,8 +1,29 @@
 (ns org.mushin.files
-  (:import [java.nio.file CopyOption Files Path Paths StandardCopyOption LinkOption]
+  (:import [java.nio.file CopyOption Files Path Paths LinkOption]
            [java.nio.file.attribute FileAttribute]
-           [java.io File]
+           [java.nio.charset StandardCharsets]
+           [java.io File OutputStream InputStream]
            [java.net URI]))
+
+(def charset-utf8 StandardCharsets/UTF_8)
+
+(def charset-utf16 StandardCharsets/UTF_16)
+
+(defn sanitize-file
+  [file]
+  (if (instance? Path file)
+    (str file)
+    file))
+
+(defn null-output-stream
+  ^OutputStream
+  []
+  (OutputStream/nullOutputStream))
+
+(defn transfer-to
+  ^long
+  [^InputStream input-stream ^OutputStream output-stream]
+  (.transferTo input-stream output-stream))
 
 (defn path
   "Create a path from a base path and list of path parts.
@@ -94,12 +115,17 @@
   - `suffix`: A suffix to append to the temp file's name.
   - `attrs`: (Optional) list of file open attributes to open the file with.
 
+  This function can be called with no arguments, in which case we let the JVM
+  decide the file name and attributes.
+
   # Return
   A path to the temp file.
   "
   ^Path
-  [^String prefix ^String extension & file-attributes]
-  (Files/createTempFile prefix extension (into-array FileAttribute file-attributes)))
+  ([^String prefix ^String extension & file-attributes]
+   (Files/createTempFile prefix extension (into-array FileAttribute file-attributes)))
+  ([]
+   (create-temp-file "" "")))
 
 (defn create-temp-file-in
   "Create a temp file.

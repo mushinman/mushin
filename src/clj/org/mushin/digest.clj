@@ -1,7 +1,15 @@
 (ns org.mushin.digest
   (:require [clj-commons.digest :as clj-digest]
+            [org.mushin.files :as files]
+            [clojure.java.io :as io]
             [org.mushin.codecs :as codecs])
-  (:import [java.security MessageDigest]))
+  (:import [java.security MessageDigest DigestInputStream]
+           [java.io InputStream]))
+
+(defn digest-input-stream
+  ^DigestInputStream
+  [^InputStream stream ^MessageDigest md]
+  (DigestInputStream. stream md))
 
 (defn create-sha256-digest
   []
@@ -16,6 +24,16 @@
    (.update md data))
   ([^MessageDigest md ^bytes data ^long offset ^long length]
    (.update md data offset length)))
+
+(defn digest-file
+  ^MessageDigest
+  ([^MessageDigest md file]
+   (with-open [dis (digest-input-stream (io/input-stream (files/sanitize-file file)) md)
+               os (files/null-output-stream)]
+     (files/transfer-to dis os))
+   md)
+  ([file]
+   (digest-file (create-sha256-digest) file)))
 
 (defn sha-256-bytes
   [data]

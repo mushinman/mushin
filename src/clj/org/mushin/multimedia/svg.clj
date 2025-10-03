@@ -3,6 +3,7 @@
             [clojure.math :as math]
             [clojure.string :as str]
             [org.mushin.codecs :as b64]
+            [org.mushin.files :as files]
             [org.mushin.multimedia.gif :as gif]
             [java-time.api :as time])
   (:import [io.sf.carte.echosvg.transcoder TranscoderInput TranscoderException TranscoderOutput SVGAbstractTranscoder]
@@ -12,6 +13,7 @@
            [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
            [io.sf.carte.echosvg.anim.dom SAXSVGDocumentFactory]
            [io.sf.carte.echosvg.bridge UserAgentAdapter DocumentLoader BridgeContext GVTBuilder]
+           [io.sf.carte.echosvg.svggen SVGGraphics2D]
            [io.sf.carte.echosvg.gvt GraphicsNode]
            [io.sf.carte.echosvg.dom.util DOMUtilities]
            [org.w3c.dom.svg SVGDocument SVGFitToViewBox SVGElement]
@@ -21,7 +23,8 @@
            [javax.xml.transform.dom DOMSource]
            [java.awt.geom AffineTransform Rectangle2D]
            [java.awt.image BufferedImage RenderedImage]
-           [java.io StringWriter]
+           [java.io StringWriter OutputStreamWriter]
+           [java.nio.file Path]
            [org.mushin.multimedia BufferedImageTranscoder]))
 
 
@@ -30,7 +33,6 @@
   "urn:mushin")
 
 (def ^String svg-ns SVGDOMImplementation/SVG_NAMESPACE_URI)
-
 
 (defn get-caption-pixel-height
   [virtual-height content-virtual-height content-pixel-height]
@@ -58,16 +60,14 @@
     (.transform tr (DOMSource. doc) (StreamResult. sw))
     (.toString sw)))
 
-(defn doc->stream
-  [^SVGDocument doc ^OutputStream stream]
-  (let [tf (TransformerFactory/newInstance)
-        tr (.newTransformer tf)]
-    (.setOutputProperty tr OutputKeys/OMIT_XML_DECLARATION "no")
-    (.setOutputProperty tr OutputKeys/METHOD "xml")
-    (.setOutputProperty tr OutputKeys/ENCODING "UTF-8")
-    (.setOutputProperty tr OutputKeys/INDENT "yes")
-    (.transform tr (DOMSource. doc) (StreamResult. stream))
-    stream))
+(defn write-svgdoc-to-file!
+  [^SVGDocument doc file]
+  (with-open [osw (-> (io/output-stream (if (instance? Path file)
+                                          (str file)
+                                          file))
+                      (OutputStreamWriter. files/charset-utf8))]
+    (.stream (SVGGraphics2D. doc) (.getDocumentElement doc) osw))
+  file)
 
 (defn get-viewbox-of
   [element]
