@@ -9,6 +9,8 @@
 
 (def charset-utf16 StandardCharsets/UTF_16)
 
+(def tmp-dir (System/getProperty "java.io.tmpdir"))
+
 (defn sanitize-file
   [file]
   (if (instance? Path file)
@@ -36,6 +38,13 @@
   [^String base & parts]
   (Paths/get base (into-array String parts)))
 
+(defn to-real-path
+  [^Path p & options]
+  (.toRealPath p (into-array LinkOption options)))
+
+(defn normalize
+  [^Path p]
+  (.normalize p))
 
 (defn move
   "Move a file from path `src` to `dst`.

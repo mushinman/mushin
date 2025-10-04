@@ -12,9 +12,10 @@
            [javax.xml.transform TransformerFactory OutputKeys]
            [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
            [io.sf.carte.echosvg.anim.dom SAXSVGDocumentFactory]
-           [io.sf.carte.echosvg.bridge UserAgentAdapter DocumentLoader BridgeContext GVTBuilder]
+           [io.sf.carte.echosvg.bridge UserAgentAdapter DocumentLoader BridgeContext GVTBuilder ExternalResourceSecurity ScriptSecurity]
            [io.sf.carte.echosvg.svggen SVGGraphics2D]
            [io.sf.carte.echosvg.gvt GraphicsNode]
+           [io.sf.carte.echosvg.util ParsedURL]
            [io.sf.carte.echosvg.dom.util DOMUtilities]
            [org.w3c.dom.svg SVGDocument SVGFitToViewBox SVGElement]
            [javax.imageio ImageIO ImageWriter]
@@ -37,6 +38,34 @@
 (defn get-caption-pixel-height
   [virtual-height content-virtual-height content-pixel-height]
   (* (/ (- virtual-height content-virtual-height) content-virtual-height) content-pixel-height))
+
+(defn file-root-ua [^String root-path]
+  (let [root (-> (files/path root-path)
+                 (files/to-absolute-path)
+                 (files/normalize))]
+    (proxy [UserAgentAdapter] []
+      (getExternalResourceSecurity
+        [^ParsedURL res ^ParsedURL doc]
+        (reify ExternalResourceSecurity
+          (checkLoadExternalResource [_]
+            (println "file-root-ua")
+            (when (not= "file" (.getProtocol res))
+              (throw (SecurityException. "Only file protocol is allowed")))
+            (let [p (-> (files/path (.getPath res))
+                        (files/to-absolute-path)
+                        (files/normalize))]
+              (when-not (.startsWith p root)
+                (throw (SecurityException. (str "Blocked outside the root path " root))))))))
+      (getScriptSecurity
+        [^String t ^ParsedURL s ^ParsedURL d]
+        (reify ScriptSecurity
+          (checkLoadScript [_]
+            (throw (SecurityException. "Scripts are disabled"))))))))
+
+(defmacro transcoder-with-file-root
+  [root transcoder-type]
+  `(proxy [~transcoder-type] []
+      (createUserAgent [] (file-root-ua ~root))))
 
 (defn get-content-virtual-height
   [content-virtual-width content-pixel-width content-pixel-height]
@@ -82,14 +111,14 @@
                                 doc-file
                                 (open-svg-doc doc-file))]
     (.getImage
-     (doto (BufferedImageTranscoder.)
+     (doto (transcoder-with-file-root files/tmp-dir BufferedImageTranscoder)
        (.addTranscodingHint SVGAbstractTranscoder/KEY_WIDTH (float width-px))
        (.addTranscodingHint SVGAbstractTranscoder/KEY_HEIGHT (float height-px))
        (.addTranscodingHint SVGAbstractTranscoder/KEY_RESOLUTION_DPI (float 96))
        (.addTranscodingHint SVGAbstractTranscoder/KEY_EXECUTE_ONLOAD Boolean/TRUE)
        (.addTranscodingHint SVGAbstractTranscoder/KEY_ALLOWED_SCRIPT_TYPES "")
        (.addTranscodingHint SVGAbstractTranscoder/KEY_CONSTRAIN_SCRIPT_ORIGIN Boolean/TRUE)
-       (.addTranscodingHint SVGAbstractTranscoder/KEY_ALLOW_EXTERNAL_RESOURCES Boolean/FALSE)
+       (.addTranscodingHint SVGAbstractTranscoder/KEY_ALLOW_EXTERNAL_RESOURCES Boolean/TRUE)
        (.transcode (TranscoderInput. document) nil)))))
 
 (def href-base64 "base64,")
