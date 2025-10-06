@@ -4,7 +4,6 @@
             [clojure.string :as str]
             [org.mushin.codecs :as b64]
             [org.mushin.files :as files]
-            [org.mushin.multimedia.gif :as gif]
             [java-time.api :as time])
   (:import [io.sf.carte.echosvg.transcoder TranscoderInput TranscoderException TranscoderOutput SVGAbstractTranscoder]
            [io.sf.carte.echosvg.transcoder.image PNGTranscoder]
@@ -121,54 +120,4 @@
        (.addTranscodingHint SVGAbstractTranscoder/KEY_ALLOW_EXTERNAL_RESOURCES Boolean/TRUE)
        (.transcode (TranscoderInput. document) nil)))))
 
-(def href-base64 "base64,")
 
-(defn clone-document
-  [svg-doc]
-  (let [clone (DOMUtilities/deepCloneDocument svg-doc (.getImplementation svg-doc))]
-    (.setDocumentURI clone (.getDocumentURI svg-doc))
-    clone))
-
-
-(defn render-gif
-  [svg-file gif-file]
-  (let [svg-doc (open-svg-doc svg-file)
-        virtual-height (let [{:keys [height]} (get-viewbox-of (.getDocumentElement svg-doc))]
-                         height)
-        md (.getElementById svg-doc "mushin-metadata")
-
-        content-pixel-width (double (Integer/parseInt (.getAttributeNS md mushin-ns "pxw")))
-        content-pixel-height (double  (Integer/parseInt (.getAttributeNS md mushin-ns "pxh")))
-
-        image-node (.getElementById svg-doc "media")
-        content-virtual-height (double (Integer/parseInt (.getAttribute image-node "height")))
-        ;; TODO optimization turn that into a memorystream.
-        gif-stream  (let [href (.getAttribute image-node "href")
-                          base64-pos (str/index-of href href-base64)]
-                      (b64/b64->bytes (when base64-pos
-                                        (subs href (+ base64-pos (count href-base64))))))
-
-        caption-pixel-height (math/ceil (get-caption-pixel-height virtual-height content-virtual-height content-pixel-height))
-
-        gif-frames (let [gif (with-open [memstream (ByteArrayInputStream. gif-stream)]
-                               (gif/get-gif-from-stream memstream))]
-                     (assoc gif :scenes
-                            (mapv (fn [{:keys [x-offset y-offset] :as frame}]
-                                    (let [offset (AffineTransform/getTranslateInstance 0 caption-pixel-height)
-                                          in-image (AffineTransform/getTranslateInstance x-offset y-offset)]
-                                      (.concatenate offset in-image)
-                                      (assoc frame :x-offset (int (.getTranslateX offset)) :y-offset (int (.getTranslateY offset)))))
-                                  (:scenes gif))))
-        ;; Create a cloned document from the original and remove the image content because
-        ;; echosvg cannot render GIFs.
-        cloned-document (let [new-doc (clone-document svg-doc)
-                              img-node (.getElementById new-doc "media")]
-                          (.removeAttribute img-node "href")
-                          new-doc)
-        caption-img (render-document cloned-document content-pixel-width (+ content-pixel-height caption-pixel-height))
-        initial-frame (gif/apply-caption-to-frame caption-img caption-pixel-height (gif/get-first-frame gif-frames))
-        quanted-image (gif/quantize-image initial-frame)
-        epic (gif/add-scene gif-frames {:x-offset 0 :y-offset 0 :colortable-is-local true :disposal "doNotDispose" :frame quanted-image :duration (time/duration 10 :millis)})]
-    (with-open [os (io/output-stream gif-file)
-                gif-ios (ImageIO/createImageOutputStream os)]
-      (gif/write-gif-to gif-ios epic))))

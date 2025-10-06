@@ -8,7 +8,7 @@
             [xtdb.api :as xt]
             [org.mushin.files :as files]
             [org.mushin.resources.resource-map :as res]
-            [lambdaisland.uri :refer [uri join]]
+            [org.mushin.multimedia.captions :as caption]
             [org.mushin.multimedia.svg :as svg]
             [org.mushin.mime :as mime]
             [org.mushin.multimedia.img :as img]
@@ -16,13 +16,11 @@
             [org.mushin.digest :as digest]
             [org.mushin.codecs :as codecs]
             [org.mushin.multimedia.gif :as gif])
-  (:import [java.nio.file Files]
-           [java.io InputStream]
+  (:import [java.io InputStream]
            [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
            [javax.imageio.metadata IIOMetadata IIOMetadataNode]
-           [io.sf.carte.echosvg.anim.dom SVGDOMImplementation]
            [javax.imageio.stream ImageInputStream MemoryCacheImageInputStream ImageOutputStream]
-           [org.w3c.dom.svg SVGDocument SVGFitToViewBox]
+
            [java.awt.image BufferedImage RenderedImage IndexColorModel]
            [java.nio ByteOrder]))
 
@@ -62,87 +60,6 @@
    [:text    [:string {:min 0 :max 500}]]
    [:ratio   [:int {:min 10 :max 70}]]])
 
-(def ^String meme-css
-  "#caption {
-  font: 80px/1 \"Montserrat\", Montserrat, sans-serif;
-  fill: #fff;
-  stroke: #fff;
-  stroke-width: 0;
-  paint-order: stroke fill;
-  text-anchor: middle;
-  dominant-baseline: middle;
-}
-#frame {
-  vector-effect: non-scaling-stroke;
-  fill: #000;
-}
-#testarea {
-  fill: #F00;
-}
-image { image-rendering: auto; }")
-
-(defn- make-meme-svg
-  "Builds an SVG Document."
-  ^SVGDocument
-  [image-pixel-width image-pixel-height content-href caption caption-pixel-height]
-  (when (or (nil? image-pixel-width) (nil? image-pixel-height) (<= (double image-pixel-width) 0.0))
-    (throw (ex-info "image width/height must be positive" {:pxw image-pixel-width :pxh image-pixel-height})))
-
-  (let [impl (SVGDOMImplementation/getDOMImplementation)
-        doc  (.createDocument impl svg/svg-ns "svg" nil)
-        root (.getDocumentElement doc)
-        virtual-width 1000.0
-        img-height (* virtual-width (/ (double image-pixel-height) (double image-pixel-width)))
-        caption-virtual-height (* virtual-width (/ (double caption-pixel-height) (double image-pixel-height)))
-        total-height (+ caption-virtual-height img-height)]
-
-    (doto root
-      (.setAttribute "viewBox" (format "0 0 1000 %.0f" total-height))
-      (.setAttribute "width" "100%")
-      (.setAttribute "preserveAspectRatio" "xMidYMid meet"))
-
-    (let [style (.createElementNS doc svg/svg-ns "style")]
-      (.appendChild style (.createTextNode doc meme-css))
-      (.appendChild root style))
-
-    ;; Custom mushin metadata
-    (let [md        (.createElementNS doc svg/svg-ns "metadata")
-          mushin-el (.createElementNS doc "urn:mushin" "mushin:content-image")]
-      (.setAttributeNS mushin-el "http://www.w3.org/2000/xmlns/" "xmlns:mushin" "urn:mushin")
-      (.setAttribute mushin-el "id" "mushin-metadata")
-      (.setAttributeNS mushin-el "urn:mushin" "mushin:pxw" (str (long image-pixel-width)))
-      (.setAttributeNS mushin-el "urn:mushin" "mushin:pxh" (str (long image-pixel-height)))
-      (.appendChild md mushin-el)
-      (.appendChild root md))
-
-
-    (let [frame (.createElementNS doc svg/svg-ns "rect")]
-      (doto frame
-        (.setAttribute "id" "frame")
-        (.setAttribute "x" "0")
-        (.setAttribute "y" "0")
-        (.setAttribute "width" "1000")
-        (.setAttribute "height" (str caption-virtual-height)))
-      (.appendChild root frame))
-
-    (let [img (.createElementNS doc svg/svg-ns "image")]
-      (doto img
-        (.setAttribute "x" "0")
-        (.setAttribute "y" (str caption-virtual-height))
-        (.setAttribute "width" "100%")
-        (.setAttribute "height" (format "%.0f" img-height))
-        (.setAttribute "href" (str content-href)))
-      (.appendChild root img))
-
-    (let [txt (.createElementNS doc svg/svg-ns "text")]
-      (doto txt
-        (.setAttribute "id" "caption")
-        (.setAttribute "x" "500")
-        (.setAttribute "y" "90"))
-      (.appendChild txt (.createTextNode doc (str caption)))
-      (.appendChild root txt))
-    doc))
-
 (defn- verify-image-upload
   [^InputStream image-stream]
   true) ; TODO
@@ -159,8 +76,6 @@ image { image-rendering: auto; }")
                       image-ios (ImageIO/createImageOutputStream temp-output-file)]
             (img/write-img-from-mime-type img mime-type image-ios))
           (res/create! resource-map resource-name output-file-path)
-          (catch Exception ex
-            (throw ex))
           (finally
             (files/delete-if-exists output-file-path)))))))
 
@@ -188,7 +103,7 @@ image { image-rendering: auto; }")
             full-img-height (+ caption-pixel-height height)
             rendered-caption-img-name (create-resource-from-static-img!
                                        (svg/render-document
-                                        (make-meme-svg width height
+                                        (caption/make-meme-svg width height
                                                        (files/path->uri output-file-path) text caption-pixel-height)
                                         width full-img-height)
                                        resource-map mime-type)
@@ -196,18 +111,14 @@ image { image-rendering: auto; }")
             caption-svg-name
             (let [temp-svg (files/create-temp-file)]
               (try
-                (svg/write-svgdoc-to-file! (make-meme-svg width height
+                (svg/write-svgdoc-to-file! (caption/make-meme-svg width height
                                                           (res/to-url resource-map resource-name) text caption-pixel-height)
                                            temp-svg)
                 (let [resource-name (str (digest/digest->b64u (digest/digest-file temp-svg)) ".svg")]
                   (res/create! resource-map resource-name temp-svg))
-                (catch Exception e
-                  (throw e))
                 (finally
                   (files/delete-if-exists temp-svg))))]
         {:base-img resource-name :captioned-img rendered-caption-img-name :svg-doc caption-svg-name})
-      (catch Exception ex
-        (throw ex))
       (finally
         (files/delete-if-exists output-file-path)))))
 
@@ -231,10 +142,8 @@ image { image-rendering: auto; }")
         (try
           (with-open [temp-output-file (io/output-stream (str output-file-path))
                       image-ios (ImageIO/createImageOutputStream temp-output-file)]
-            (gif/write-gif-to image-ios gif))
+            (gif/write-gif-to-stream image-ios gif))
           (res/create! resource-map resource-name output-file-path)
-          (catch Exception ex
-            (throw ex))
           (finally
             (files/delete-if-exists output-file-path)))))))
 
@@ -249,6 +158,8 @@ image { image-rendering: auto; }")
         ;; I think img being nil means the image was invalid?
         (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
 
+      (= file-mime-type "image/gif")
+      ()
       :else
       (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
 

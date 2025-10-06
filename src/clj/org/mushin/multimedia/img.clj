@@ -1,6 +1,7 @@
 (ns org.mushin.multimedia.img
   (:require [clojure.java.io :as io]
             [org.mushin.buffers :as buffers]
+            [org.mushin.files :as files]
             [org.mushin.digest :as digest])
   (:import [javax.imageio ImageIO ImageWriter ImageWriteParam IIOImage]
            [javax.imageio.stream ImageOutputStream]
@@ -38,10 +39,18 @@
 
     (ImageIO/read file)))
 
+(defn create-image-output-stream
+  [output]
+  (ImageIO/createImageOutputStream output))
+
+(defn create-image-input-stream
+  [input]
+  (ImageIO/createImageInputStream input))
+
 (defn write-img-to
   [^BufferedImage img file-path]
-  (with-open [file (io/output-stream file-path)
-              ios (ImageIO/createImageOutputStream file)]
+  (with-open [file (io/output-stream (files/sanitize-file file-path))
+              ios (create-image-output-stream file)]
     (ImageIO/write img "PNG" ios)))
 
 (defn digest-img!

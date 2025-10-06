@@ -1,13 +1,21 @@
 (ns org.mushin.multimedia.gif
   (:require [clojure.java.io :as io]
             [java-time.api :as time]
-            [org.mushin.multimedia.colorspace :as cs])
+            [org.mushin.geom :as geom]
+            [org.mushin.with-disposable :refer [with-disposable]]
+            [org.mushin.files :as files]
+            [org.mushin.multimedia.svg :as svg]
+            [org.mushin.multimedia.captions :as caption]
+            [clojure.math :as math]
+            [org.mushin.multimedia.colorspace :as cs]
+            [org.mushin.multimedia.img :as img])
   (:import [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
            [javax.imageio.metadata IIOMetadata IIOMetadataNode]
            [org.apache.commons.math3.ml.clustering KMeansPlusPlusClusterer DoublePoint MultiKMeansPlusPlusClusterer CentroidCluster Clusterable]
            [org.apache.commons.math3.ml.distance EuclideanDistance]
            [org.apache.commons.math3.random MersenneTwister]
            [java.util Random]
+           [java.time Duration]
            [javax.imageio.stream ImageInputStream MemoryCacheImageInputStream ImageOutputStream]
            [java.awt Transparency]
            [java.awt.image BufferedImage RenderedImage IndexColorModel]
@@ -16,19 +24,31 @@
 
 (defonce logical-screen-descriptor "LogicalScreenDescriptor")
 
-(defrecord GifSequenceWriter
-    [^ImageWriter gif-writer]
-  Closeable (close [_] (.endWriteSequence gif-writer)))
+;; (defrecord GifSequenceWriter
+;;     [^ImageWriter gif-writer]
+;;   Closeable (close [_] (.endWriteSequence gif-writer)))
+
+(defn- ceilint
+  [^double d]
+  (int (math/ceil d)))
+
+(defn- roundint
+  [^double d]
+  (int (math/round d)))
+
+(defn centiseconds
+  [centis]
+  (time/duration (* centis 10) :millis))
+
+(defn duration-to-centiseconds
+  [^Duration duration]
+  (/ (time/as duration :millis) 10))
 
 (defn- is-indexed
   ^Boolean
   [^BufferedImage image]
   (or (= (.getType image) BufferedImage/TYPE_BYTE_INDEXED)
       (= (.getType image) BufferedImage/TYPE_BYTE_BINARY)))
-
-(defn- as-closeable [obj close-fn]
-  (reify java.io.Closeable
-    (close [_] (close-fn obj))))
 
 (defn keyify-disposal-method
   [^String method]
@@ -100,16 +120,15 @@
 (defn get-gif-timeframes
   "Create a sequence of frame times for each frame in `gif`"
   [gif]
-  (let [reader (get-reader)]
-    (with-open [_ (as-closeable reader #(.dispose %))
-                iis (ImageIO/createImageInputStream gif)]
+  (with-disposable [reader (get-reader)]
+    (with-open [iis (ImageIO/createImageInputStream gif)]
       (.setInput reader iis)
       (mapv (fn [^long i]
               (let [frame-metadata (.getImageMetadata reader i)
                     root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
                     gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
                 ;; Here we clamp to 1 ms because it's technically possible for a gif to have a frame time of 0ms.
-                (time/duration (* (max (Integer/parseInt (.getAttribute gce "delayTime")) 1) 10) :millis)))
+                (centiseconds (max (Integer/parseInt (.getAttribute gce "delayTime")) 1))))
             (range (.getNumImages reader true))))))
 
 (defn get-gif-frames-from-reader
@@ -128,7 +147,7 @@
                                                      (.getNamedItem "imageTopPosition")
                                                      (.getNodeValue)))
                      :colortable-is-local (pos? (.getLength (.getElementsByTagName root "LocalColorTable")))
-                     :duration (time/duration (* (max (Integer/parseInt (.getAttribute gce "delayTime")) 1) 10) :millis)
+                     :duration (centiseconds (max (Integer/parseInt (.getAttribute gce "delayTime")) 1))
                      :frame    (.read reader i)
                      :disposal (or (.getAttribute gce "disposalMethod") "none")}
               (and (some? gce) (= (.getAttribute gce "transparentColorFlag") "TRUE")) (assoc :transparent-color-index (Integer/parseInt (.getAttribute gce "transparentColorIndex"))))))
@@ -142,9 +161,8 @@
 
 
 (defn write-to-sequence!
-  [^GifSequenceWriter writer {:keys [duration frame disposal x-offset y-offset colortable-is-local transparent-color-index]} i]
-  (let [writer (:gif-writer writer)
-        write-param (.getDefaultWriteParam writer)]
+  [^ImageWriter writer {:keys [duration frame disposal x-offset y-offset colortable-is-local transparent-color-index]}]
+  (let [write-param (.getDefaultWriteParam writer)]
     (.writeToSequence writer (IIOImage. frame nil
                                         (let [metadata (.getDefaultImageMetadata writer
                                                                                  (ImageTypeSpecifier/createFromRenderedImage frame)
@@ -155,7 +173,7 @@
                                           (doto gce
                                             (.setAttribute "disposalMethod" disposal)
                                             (.setAttribute "userInputFlag" "FALSE")
-                                            (.setAttribute "delayTime" (str (/ (time/as duration :millis) 10))))
+                                            (.setAttribute "delayTime" (str (duration-to-centiseconds duration))))
                                           (let [id (doto (get-node! root "ImageDescriptor")
                                                      (.setAttribute "imageLeftPosition" (str x-offset))
                                                      (.setAttribute "imageTopPosition" (str y-offset)))]
@@ -201,15 +219,13 @@
                                               (write-color-model! color-model lct)
                                               (.appendChild root lct)))
                                           (.setFromTree metadata fmt root)
-                                          (println "TCI " (.getAttribute gce "transparentColorIndex"))
                                           metadata))
                       write-param)))
 
 (defn write-frames-to-sequence!
-  [^GifSequenceWriter writer frames i]
-  (when-not (empty? frames)
-    (write-to-sequence! writer (first frames) i)
-    (recur writer (rest frames) (inc i))))
+  [^ImageWriter writer frames]
+  (doseq [frame frames]
+    (write-to-sequence! writer frame)))
 
 (defn create-gif-reader
   ^ImageReader
@@ -223,40 +239,46 @@
     (throw (ex-info "Invalid GIF: Gif defined a background-index but does not have a global-color-table!"
                     {:background-index background-index})))
   (let [writer (get-writer)]
-    (GifSequenceWriter. (doto writer
-                          (.setOutput output-stream)
-                          (.prepareWriteSequence
-                           (let [param (.getDefaultWriteParam writer)
-                                 sm (.getDefaultStreamMetadata writer param)
-                                 fmt (.getNativeMetadataFormatName sm)
-                                 root (IIOMetadataNode. fmt)]
-                             (.appendChild root (doto (IIOMetadataNode. "Version")
-                                                  (.setAttribute "value" "89a")))
-                             (.appendChild root
-                                           (doto (IIOMetadataNode. "LogicalScreenDescriptor")
-                                             (.setAttribute "logicalScreenWidth" (str width))
-                                             (.setAttribute "logicalScreenHeight" (str height))
-                                             (.setAttribute "colorResolution" "8")
-                                             (.setAttribute "pixelAspectRatio" "0")))
-                             (when global-color-table
-                               (let [gct-node (doto (IIOMetadataNode. "GlobalColorTable")
-                                                (.setAttribute "sizeOfGlobalColorTable" (str (.getMapSize global-color-table)))
-                                                (.setAttribute "sortFlag" "FALSE")
-                                                (.setAttribute "backgroundColorIndex" (str (or background-index 0))))]
-                                 (write-color-model! global-color-table gct-node)
-                                 (.appendChild root gct-node)))
+    (doto writer
+      (.setOutput output-stream)
+      (.prepareWriteSequence
+       (let [param (.getDefaultWriteParam writer)
+             sm (.getDefaultStreamMetadata writer param)
+             fmt (.getNativeMetadataFormatName sm)
+             root (IIOMetadataNode. fmt)]
+         (.appendChild root (doto (IIOMetadataNode. "Version")
+                              (.setAttribute "value" "89a")))
+         (.appendChild root
+                       (doto (IIOMetadataNode. "LogicalScreenDescriptor")
+                         (.setAttribute "logicalScreenWidth" (str width))
+                         (.setAttribute "logicalScreenHeight" (str height))
+                         (.setAttribute "colorResolution" "8")
+                         (.setAttribute "pixelAspectRatio" "0")))
+         (when global-color-table
+           (let [gct-node (doto (IIOMetadataNode. "GlobalColorTable")
+                            (.setAttribute "sizeOfGlobalColorTable" (str (.getMapSize global-color-table)))
+                            (.setAttribute "sortFlag" "FALSE")
+                            (.setAttribute "backgroundColorIndex" (str (or background-index 0))))]
+             (write-color-model! global-color-table gct-node)
+             (.appendChild root gct-node)))
 
-                             (.setFromTree sm fmt root)
-                             sm))
-                          ;; TODO
-                          ))))
+         (.setFromTree sm fmt root)
+         sm))
+      ;; TODO
+      )))
 
 
-
-(defn write-gif-to
+(defn write-gif-to-stream
   [^ImageOutputStream output-stream {:keys [background-index global-color-table width height scenes]}]
-  (with-open [writer (create-gif-sequence output-stream width height background-index global-color-table)]
-    (write-frames-to-sequence! writer scenes 0)))
+  (with-disposable [writer (create-gif-sequence output-stream width height background-index global-color-table)]
+    (write-frames-to-sequence! writer scenes)
+    (.endWriteSequence writer)))
+
+(defn write-gif-to-file
+  [file gif]
+  (with-open [file-stream (io/output-stream (files/sanitize-file file))
+              stream (img/create-image-output-stream file-stream)]
+    (write-gif-to-stream stream gif)))
 
 (defn- remap-indexed-image-to-gct
   ^BufferedImage
@@ -327,9 +349,10 @@
         tci
         (recur frame-count (inc i))))))
 
+
 (defn get-gif-from-stream
   [stream]
-  (with-open [gif-iis (ImageIO/createImageInputStream stream)]
+  (with-open [gif-iis (img/create-image-input-stream stream)]
     (let [reader (doto (get-reader)
                    (.setInput gif-iis))
           sm (.getStreamMetadata reader)
@@ -368,6 +391,11 @@
         (some? gct) (assoc :global-color-table gct)
         (some? background-index) (assoc :background-index background-index)))))
 
+(defn get-gif-from-file
+  [file]
+  (with-open [stream (io/input-stream (files/sanitize-file file))]
+    (get-gif-from-stream stream)))
+
 (defn add-scene
   [{:keys [scenes] :as gif} scene]
   (assoc gif :scenes (cons scene scenes)))
@@ -375,16 +403,6 @@
 (defn get-first-frame
   [{:keys [scenes]}]
   (:frame (first scenes)))
-
-;; (defn gif-deep-copy
-;;   [src-path dest-path]
-;;   (with-open [dest-file   (io/output-stream dest-path)
-;;               gif-ios     (ImageIO/createImageOutputStream dest-file)
-;;               writer      (create-gif-sequence gif-ios)]
-;;     (let [frames (get-gif-from-path src-path)
-;;           width (.getWidth (:frame (first frames)))
-;;           height (.getHeight (:frame (first frames)))]
-;;       (write-frames-to-sequence! writer (img/copy-frame-map frames (AffineTransform.) width height)))))
 
 (defn apply-caption-to-frame
   [caption-img caption-stop-y frame]
@@ -394,7 +412,6 @@
       (.drawRenderedImage frame (AffineTransform/getTranslateInstance 0 caption-stop-y))
       (.dispose))
     combined-img))
-
 
 (defn- find-closest-palette-match-index
   ^Integer
@@ -483,25 +500,31 @@
                                     255))))
     palettized-image))
 
-;; (defn dump-gif-frames-to
-;;   [gif-file dir]
-;;   (with-open [gif (io/input-stream gif-file)
-;;               iis (ImageIO/createImageInputStream gif)]
-;;     (loop [frames (mapv :frame (get-gif-frames iis))
-;;            i 0]
-;;       (when-not (empty? frames)
-;;         (with-open [png (io/output-stream (str dir "/" i ".png"))
-;;                     png-ios (ImageIO/createImageOutputStream png)]
-;;           (ImageIO/write (first frames) "PNG" png-ios))
-;;         (recur (rest frames) (inc i))))))
+(defn caption-gif
+  [{:keys [width height scenes] :as gif} caption caption-ratio]
+  (let [content-pixel-width width
+        content-pixel-height height
+        caption-pixel-height (ceilint (* content-pixel-height (/ caption-ratio 100.0)))
 
-;; (defn dump-gif
-;;   [gif-file dir]
-;;   (with-open [gif-is (io/input-stream gif-file)]
-;;     (loop [frames (:scenes (get-gif-from-stream gif-is))
-;;            i 0]
-;;       (when-not (empty? frames)
-;;         (with-open [png (io/output-stream (str dir "/" i ".png"))
-;;                     png-ios (ImageIO/createImageOutputStream png)]
-;;           (ImageIO/write (:frame (first frames)) "PNG" png-ios))
-;;         (recur (rest frames) (inc i))))))
+        final-image-pixel-height (+ caption-pixel-height content-pixel-height)
+
+        ;; Calculate new frame offsets taking the caption area into account.
+        gif-frames (mapv (fn [{:keys [x-offset y-offset] :as scene}]
+                           (let [offset-img (-> (geom/get-translate-transform 0.0 caption-pixel-height)
+                                                (geom/concatenate-transforms (geom/get-translate-transform x-offset y-offset)))]
+                             (assoc scene
+                                    :x-offset (roundint (geom/get-translate-x offset-img))
+                                    :y-offset (roundint (geom/get-translate-y offset-img)))))
+                         scenes)
+        caption-frame (quantize-image
+                       (let [temp-file (files/create-temp-file)]
+                         (try
+                           (img/write-img-to (:frame (first scenes)) temp-file)
+                           (svg/render-document (caption/make-meme-svg content-pixel-width content-pixel-height temp-file caption caption-pixel-height)
+                                                content-pixel-width final-image-pixel-height)
+                           (finally
+                             (files/delete-if-exists temp-file)))))]
+    (assoc gif
+           :scenes (cons {:frame caption-frame :x-offset 0 :y-offset 0 :colortable-is-local true
+                          :duration (centiseconds 1) :disposal "doNotDispose"} gif-frames)
+           :height final-image-pixel-height)))
