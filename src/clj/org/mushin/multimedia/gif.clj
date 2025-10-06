@@ -10,19 +10,20 @@
             [org.mushin.multimedia.colorspace :as cs]
             [org.mushin.multimedia.img :as img])
   (:import [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
-           [javax.imageio.metadata IIOMetadata IIOMetadataNode]
+           [javax.imageio.metadata IIOMetadataNode]
            [org.apache.commons.math3.ml.clustering KMeansPlusPlusClusterer DoublePoint MultiKMeansPlusPlusClusterer CentroidCluster Clusterable]
            [org.apache.commons.math3.ml.distance EuclideanDistance]
            [org.apache.commons.math3.random MersenneTwister]
-           [java.util Random]
+           [org.w3c.dom Element]
            [java.time Duration]
-           [javax.imageio.stream ImageInputStream MemoryCacheImageInputStream ImageOutputStream]
+           [javax.imageio.stream ImageInputStream ImageOutputStream]
            [java.awt Transparency]
-           [java.awt.image BufferedImage RenderedImage IndexColorModel]
-           [java.awt.geom AffineTransform]
-           [java.io Closeable]))
+           [java.awt.image BufferedImage IndexColorModel]
+           [java.awt.geom AffineTransform]))
 
 (defonce logical-screen-descriptor "LogicalScreenDescriptor")
+
+(def graphic-control-extension "GraphicControlExtension")
 
 ;; (defrecord GifSequenceWriter
 ;;     [^ImageWriter gif-writer]
@@ -126,7 +127,7 @@
       (mapv (fn [^long i]
               (let [frame-metadata (.getImageMetadata reader i)
                     root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
-                    gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
+                    gce (get-node root "GraphicControlExtension")]
                 ;; Here we clamp to 1 ms because it's technically possible for a gif to have a frame time of 0ms.
                 (centiseconds (max (Integer/parseInt (.getAttribute gce "delayTime")) 1))))
             (range (.getNumImages reader true))))))
@@ -135,8 +136,8 @@
   [^ImageReader reader]
   (mapv (fn [^long i]
           (let [frame-metadata (.getImageMetadata reader i)
-                root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
-                gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
+                ^Element root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
+                gce (get-node root "GraphicControlExtension")]
             ;; Here we clamp to 1 ms because it's technically possible for a gif to have a frame time of 0ms.
             (cond-> {:x-offset (Integer/parseInt (-> (get-node! root "ImageDescriptor")
                                                      (.getAttributes)
@@ -161,15 +162,15 @@
 
 
 (defn write-to-sequence!
-  [^ImageWriter writer {:keys [duration frame disposal x-offset y-offset colortable-is-local transparent-color-index]}]
+  [^ImageWriter writer {:keys [^Duration duration ^BufferedImage frame disposal x-offset y-offset colortable-is-local ^IndexColorModel transparent-color-index]}]
   (let [write-param (.getDefaultWriteParam writer)]
     (.writeToSequence writer (IIOImage. frame nil
                                         (let [metadata (.getDefaultImageMetadata writer
                                                                                  (ImageTypeSpecifier/createFromRenderedImage frame)
                                                                                  write-param)
                                               fmt (.getNativeMetadataFormatName metadata)
-                                              root (.getAsTree metadata fmt)
-                                              gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
+                                              ^Element root (.getAsTree metadata fmt)
+                                              gce (get-node root graphic-control-extension)]
                                           (doto gce
                                             (.setAttribute "disposalMethod" disposal)
                                             (.setAttribute "userInputFlag" "FALSE")
@@ -234,6 +235,7 @@
     (.setInput iis)))
 
 (defn create-gif-sequence
+  ^ImageWriter
   [^ImageOutputStream output-stream width height background-index ^IndexColorModel global-color-table]
   (when (and background-index (not global-color-table))
     (throw (ex-info "Invalid GIF: Gif defined a background-index but does not have a global-color-table!"
@@ -285,7 +287,7 @@
   [^BufferedImage source ^IndexColorModel gct ^Integer transparent-color-index]
   (let [type (.getType source)]
     (if (is-indexed source)
-      (let [src-color-model (.getColorModel source)
+      (let [^IndexColorModel src-color-model (.getColorModel source)
             src-n (.getMapSize src-color-model)
             dst-n (.getMapSize gct)
 
@@ -339,8 +341,8 @@
          i 0]
     (when-not (= i frame-count)
       (if-let [tci (let [frame-metadata (.getImageMetadata reader i)
-                         root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
-                         gce (.item (.getElementsByTagName root "GraphicControlExtension") 0)]
+                         ^Element root (.getAsTree frame-metadata (.getNativeMetadataFormatName frame-metadata))
+                         gce (get-node root graphic-control-extension)]
                      (when (and gce
                                 (zero? (.getLength (.getElementsByTagName root "LocalColorTable")))
                                 (= (.getAttribute gce "transparentColorFlag") "TRUE"))
@@ -368,7 +370,7 @@
                       greens (byte-array n)
                       blues (byte-array n)]
                   (dotimes [i n]
-                    (let [e (.item nl i)
+                    (let [^Element e (.item nl i)
                           index (Integer/parseInt (.getAttribute e "index"))]
                       (aset-byte reds   index (unchecked-byte (Integer/parseInt (.getAttribute e "red"))))
                       (aset-byte greens index (unchecked-byte (Integer/parseInt (.getAttribute e "green"))))
@@ -395,23 +397,6 @@
   [file]
   (with-open [stream (io/input-stream (files/sanitize-file file))]
     (get-gif-from-stream stream)))
-
-(defn add-scene
-  [{:keys [scenes] :as gif} scene]
-  (assoc gif :scenes (cons scene scenes)))
-
-(defn get-first-frame
-  [{:keys [scenes]}]
-  (:frame (first scenes)))
-
-(defn apply-caption-to-frame
-  [caption-img caption-stop-y frame]
-  (let [combined-img (BufferedImage. (.getWidth caption-img) (.getHeight caption-img) BufferedImage/TYPE_INT_ARGB)]
-    (doto (.getGraphics combined-img)
-      (.drawRenderedImage caption-img (AffineTransform.))
-      (.drawRenderedImage frame (AffineTransform/getTranslateInstance 0 caption-stop-y))
-      (.dispose))
-    combined-img))
 
 (defn- find-closest-palette-match-index
   ^Integer
@@ -463,7 +448,7 @@
         image-sample (into [] (comp
                                (filter some?)
                                (random-sample (min 1.0 (/ 200000.0 opaque-pixel-count))) ; TODO if the image is entirely tansparent or empty that will result in a div by 0.
-                               (map #(DoublePoint. %)))
+                               (map (fn [^doubles d] (DoublePoint. d))))
                            lab-stream)
 
         distance-measurer (EuclideanDistance.)
@@ -492,7 +477,10 @@
                                          (IndexColorModel. 8 256 palette-rgb 0 false (if has-transparent-pixels
                                                                                        255
                                                                                        -1)))
-        ^bytes raster-buffer (.getData (.getDataBuffer (.getRaster palettized-image)))]
+        raster-buffer (-> palettized-image
+                          (img/get-raster)
+                          (img/get-data-byte-buffer)
+                          (img/get-byte-data))]
     (dotimes [i (alength raster-buffer)]
       (aset-byte raster-buffer i (unchecked-byte
                                   (if-let [pixel (nth lab-stream i)]

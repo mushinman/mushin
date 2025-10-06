@@ -4,11 +4,25 @@
             [org.mushin.files :as files]
             [org.mushin.digest :as digest])
   (:import [javax.imageio ImageIO ImageWriter ImageWriteParam IIOImage]
-           [javax.imageio.stream ImageOutputStream]
-           [java.awt.geom AffineTransform]
+           [javax.imageio.stream ImageInputStream ImageOutputStream]
            [java.security MessageDigest]
-           [java.awt.image BufferedImage]
+           [java.awt.image BufferedImage DataBufferByte WritableRaster]
            [java.nio ByteOrder]))
+
+(defn get-raster
+  ^WritableRaster
+  [^BufferedImage img]
+  (.getRaster img))
+
+(defn get-data-byte-buffer
+  ^DataBufferByte
+  [^WritableRaster raster]
+  (.getDataBuffer raster))
+
+(defn get-byte-data
+  ^bytes
+  [^DataBufferByte buffer]
+  (.getData buffer))
 
 (defn get-writer-by-mime-type
   ^ImageWriter
@@ -18,13 +32,14 @@
 (defn write-img-from-mime-type
   [^BufferedImage img ^String mime-type ^ImageOutputStream output-stream & {:keys [compression-level compression-algorithm]}]
   (let [writer (get-writer-by-mime-type mime-type)
-        params (doto (.getDefaultWriteParam writer)
-                 #(when compression-level
-                     (.setCompressionMode % ImageWriteParam/MODE_EXPLICIT)
-                     (.setCompressionQuality % (float compression-level)))
-                 #(when compression-algorithm
-                      (.setCompressionMode % ImageWriteParam/MODE_EXPLICIT)
-                      (.setCompressionType % compression-algorithm)))]
+        params (let [param (.getDefaultWriteParam writer)]
+                 (when compression-level
+                     (.setCompressionMode param ImageWriteParam/MODE_EXPLICIT)
+                     (.setCompressionQuality param (float compression-level)))
+                 (when compression-algorithm
+                      (.setCompressionMode param ImageWriteParam/MODE_EXPLICIT)
+                      (.setCompressionType param compression-algorithm))
+                 param)]
     (try
       (.setOutput writer output-stream)
       (.write writer nil (IIOImage. img nil nil) params)
@@ -40,10 +55,12 @@
     (ImageIO/read file)))
 
 (defn create-image-output-stream
+  ^ImageOutputStream
   [output]
   (ImageIO/createImageOutputStream output))
 
 (defn create-image-input-stream
+  ^ImageInputStream
   [input]
   (ImageIO/createImageInputStream input))
 
@@ -77,17 +94,3 @@
   ^bytes
   [^BufferedImage img]
   (digest/digest->bytes (digest-img! img)))
-
-
-;(defn copy-frame
-;  [{:keys [frame x-offset y-offset] :as full-frame} ^AffineTransform base-transform width height]
-;  (assoc full-frame :frame (copy-img frame (mul base-transform (AffineTransform/getTranslateInstance x-offset y-offset)) width height)))
-
-;(defn copy-frame-map
-;  [frames ^AffineTransform base-transform width height]
-;  (mapv #(copy-frame % base-transform width height) frames))
-
-(defn mul
-  [^AffineTransform left ^AffineTransform right]
-  (doto (.clone left)
-    (.concatenate right)))
