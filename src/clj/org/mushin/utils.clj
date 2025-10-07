@@ -27,3 +27,6 @@
     ~x
     (catch Exception ~'ex
       nil)))
+
+(defn condj [v val]
+  (cond-> v val (conj val)))

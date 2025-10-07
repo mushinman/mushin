@@ -187,7 +187,7 @@
   [^Path path & others]
   (if (empty? others)
     path
-    (recur (.resolve path (first others)) (rest others))))
+    (recur (.resolve path ^String (first others)) (rest others))))
 
 (defn to-absolute-path
   "Convert a path to absolute path.

@@ -1,12 +1,14 @@
 (ns org.mushin.multimedia.img
   (:require [clojure.java.io :as io]
             [org.mushin.buffers :as buffers]
+            [org.mushin.with-disposable :refer [with-disposable]]
             [org.mushin.files :as files]
             [org.mushin.digest :as digest])
   (:import [javax.imageio ImageIO ImageWriter ImageWriteParam IIOImage]
            [javax.imageio.stream ImageInputStream ImageOutputStream]
            [java.security MessageDigest]
-           [java.awt.image BufferedImage DataBufferByte WritableRaster]
+           [java.util Hashtable]
+           [java.awt.image BufferedImage DataBufferByte WritableRaster IndexColorModel DataBuffer ColorModel]
            [java.nio ByteOrder]))
 
 (defn get-raster
@@ -23,6 +25,46 @@
   ^bytes
   [^DataBufferByte buffer]
   (.getData buffer))
+
+(def img-type-argb BufferedImage/TYPE_INT_ARGB)
+
+(def img-type-byte-index BufferedImage/TYPE_BYTE_INDEXED)
+
+(defn img-width
+  ^Integer
+  [^BufferedImage img]
+  (.getWidth img))
+
+(defn img-height
+  ^Integer
+  [^BufferedImage img]
+  (.getHeight img))
+
+(defn create-buffered-img-from-raster
+  ^BufferedImage
+  [^ColorModel cm ^WritableRaster raster ^Boolean is-raster-premultiplied ^Hashtable properties]
+  (BufferedImage. cm raster is-raster-premultiplied properties))
+
+(defn ->buffered-image
+  ^BufferedImage
+  ([^Integer width ^Integer height ^Integer image-type ^IndexColorModel cm]
+   (BufferedImage. width height image-type cm))
+  ([^Integer width ^Integer height ^Integer image-type]
+   (BufferedImage. width height image-type)))
+
+(defn ints-to-byte-icm
+  ^IndexColorModel
+  [^ints colors transparent-index]
+  (IndexColorModel. 8 (alength colors) colors 0 (boolean transparent-index) ^Integer (if transparent-index
+                                                                                       (int transparent-index)
+                                                                                       -1) DataBuffer/TYPE_BYTE))
+
+(defn copy-img
+  ^BufferedImage
+  [^BufferedImage src-img ^BufferedImage dest-img]
+  (with-disposable [g2d (.createGraphics dest-img)]
+    (.drawImage g2d src-img 0 0 nil)
+    dest-img))
 
 (defn get-writer-by-mime-type
   ^ImageWriter

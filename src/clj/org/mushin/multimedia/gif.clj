@@ -1,6 +1,7 @@
 (ns org.mushin.multimedia.gif
   (:require [clojure.java.io :as io]
             [java-time.api :as time]
+            [org.mushin.utils :refer [condj]]
             [org.mushin.geom :as geom]
             [org.mushin.with-disposable :refer [with-disposable]]
             [org.mushin.files :as files]
@@ -103,13 +104,25 @@
   []
   (-> (ImageIO/getImageWritersBySuffix "gif") iterator-seq first))
 
-;(defn create-)
-;
+(defn- get-gif-colortable-size
+  ^Integer
+  [^Integer n]
+  (cond
+    (= n 1) 1
+    (= n 2) 2
+    (<= n 4) 4
+    (<= n 8) 8
+    (<= n 16) 16
+    (<= n 32) 32
+    (<= n 64) 64
+    (<= n 128) 128
+    (<= n 256) 256
+    :else (throw (ex-info "Invalid value for a gif color table size (must be a power of 2 and not exceeding 256)" {:n n}))))
 
 (defn- write-color-model!
   ^IIOMetadataNode
   [^IndexColorModel icm ^IIOMetadataNode node]
-  (dotimes [n (.getMapSize icm)]
+  (dotimes [n (get-gif-colortable-size (.getMapSize icm))]
     (.appendChild node
                   (doto (IIOMetadataNode. "ColorTableEntry")
                     (.setAttribute "index" (str n))
@@ -205,7 +218,7 @@
                                             ;; Copy the index color model from the source frames to the destination frames
                                             ;; (imageio doesn't do this automatically for some reason).
                                             (let [^IndexColorModel color-model (.getColorModel frame)
-                                                  map-size (.getMapSize color-model)
+                                                  map-size (get-gif-colortable-size (.getMapSize color-model))
                                                   lct (doto (IIOMetadataNode. "LocalColorTable")
                                                         (.setAttribute "sortFlag" "FALSE")
                                                         (.setAttribute "sizeOfLocalColorTable" (str map-size)))]
@@ -421,6 +434,10 @@
                  next-hue-distance
                  closest-distance))))))
 
+(defn pixel-is-transparent
+  [^Integer p]
+  (= (bit-and (bit-shift-right p 24) 0xFF) 0xFF))
+
 (defn quantize-image
   ^BufferedImage
   [^BufferedImage img]
@@ -428,65 +445,74 @@
         height (.getHeight img)
         ;; Raw ARGB byte array from the image.
         rgb-stream (.getRGB img 0 0 width height nil 0 width)
-        ;; Vector of double-arrays containing the CIELAB values for each pixel.
-        ;; Or nil, if the pixel is transparent.
-        lab-stream (mapv (fn [^Integer i]
-                           ;; If the pixel is opaque then convert to lab.
-                           ;; Otherwise, nil.
-                           (if (= (bit-and (bit-shift-right i 24) 0xFF) 0xFF)
-                             (double-array (cs/srgb->cielab (/ (bit-and (bit-shift-right i 16) 0xFF) 255.0)
-                                                            (/ (bit-and (bit-shift-right i 8) 0xFF) 255.0)
-                                                            (/ (bit-and i 0xFF) 255.0)))
-                             nil))
-                         rgb-stream)
-        opaque-pixel-count (count (filter some? lab-stream))
-        has-transparent-pixels (< opaque-pixel-count (count lab-stream))
-        max-unique-colors (if has-transparent-pixels
-                            255
-                            256)
-        ;; A sample of lab-stream excluding transparent pixels.
-        image-sample (into [] (comp
-                               (filter some?)
-                               (random-sample (min 1.0 (/ 200000.0 opaque-pixel-count))) ; TODO if the image is entirely tansparent or empty that will result in a div by 0.
-                               (map (fn [^doubles d] (DoublePoint. d))))
-                           lab-stream)
+        unique-colors (apply hash-set rgb-stream)
+        has-transparent-pixels (some pixel-is-transparent rgb-stream)]
 
-        distance-measurer (EuclideanDistance.)
-        cluster (.cluster (MultiKMeansPlusPlusClusterer.
-                           (KMeansPlusPlusClusterer.
-                            max-unique-colors
-                            20
-                            distance-measurer
-                            (MersenneTwister.))
-                           3)
-                          image-sample)
-        ;; Vector of double-arrays in CIELAB.  A quantized version image-sample.
-        palette-lab (mapv (fn [^CentroidCluster centroid]
-                            (.getPoint (.getCenter centroid)))
-                          cluster)
-        ;; A byte-array, with each byte being a red, green, or red component interleaved.  An sRGB of palette-lab.
-        palette-rgb (byte-array (concat
-                                 (flatten (mapv (fn [[l a b]]
-                                                  (let [[r g b] (cs/cielab->srgb l a b)]
-                                                    [(cs/normalized->byte r) (cs/normalized->byte g) (cs/normalized->byte b)]))
-                                                palette-lab))
-                                 ;; Add an extra transparency pixel on.
-                                 (when has-transparent-pixels
-                                   [(byte 0) (byte 0) (byte 0)])))
-        palettized-image (BufferedImage. width height BufferedImage/TYPE_BYTE_INDEXED
-                                         (IndexColorModel. 8 256 palette-rgb 0 false (if has-transparent-pixels
-                                                                                       255
-                                                                                       -1)))
-        raster-buffer (-> palettized-image
-                          (img/get-raster)
-                          (img/get-data-byte-buffer)
-                          (img/get-byte-data))]
-    (dotimes [i (alength raster-buffer)]
-      (aset-byte raster-buffer i (unchecked-byte
-                                  (if-let [pixel (nth lab-stream i)]
-                                    (find-closest-palette-match-index distance-measurer pixel palette-lab)
-                                    255))))
-    palettized-image))
+    (if (< (+ (if has-transparent-pixels 1 0) (count unique-colors)) 256)
+      ;; We don't need to bother quantizing if there's less than 256 colors anyway.
+      (img/copy-img img (img/->buffered-image width height
+                                              img/img-type-byte-index
+                                              (img/ints-to-byte-icm (int-array (condj (vec unique-colors) (if has-transparent-pixels 0 nil)))
+                                                                    (if has-transparent-pixels 0 nil))))
+      ;; Quantize the image:
+      (let [;; Vector of double-arrays containing the CIELAB values for each pixel.
+            ;; Or nil, if the pixel is transparent.
+            lab-stream (mapv (fn [^Integer i]
+                               ;; If the pixel is opaque then convert to lab.
+                               ;; Otherwise, nil.
+                               (if (= (bit-and (bit-shift-right i 24) 0xFF) 0xFF)
+                                 (double-array (cs/srgb->cielab (/ (bit-and (bit-shift-right i 16) 0xFF) 255.0)
+                                                                (/ (bit-and (bit-shift-right i 8) 0xFF) 255.0)
+                                                                (/ (bit-and i 0xFF) 255.0)))
+                                 nil))
+                             rgb-stream)
+            opaque-pixel-count (count (filter some? lab-stream))
+            max-unique-colors (if has-transparent-pixels
+                                255
+                                256)
+            ;; A sample of lab-stream excluding transparent pixels.
+            image-sample (into [] (comp
+                                   (filter some?)
+                                   (random-sample (min 1.0 (/ 200000.0 opaque-pixel-count))) ; TODO if the image is entirely tansparent or empty that will result in a div by 0.
+                                   (map (fn [^doubles d] (DoublePoint. d))))
+                               lab-stream)
+
+            distance-measurer (EuclideanDistance.)
+            cluster (.cluster (MultiKMeansPlusPlusClusterer.
+                               (KMeansPlusPlusClusterer.
+                                max-unique-colors
+                                10
+                                distance-measurer
+                                (MersenneTwister.))
+                               1)
+                              image-sample)
+            ;; Vector of double-arrays in CIELAB.  A quantized version image-sample.
+            palette-lab (mapv (fn [^CentroidCluster centroid]
+                                (.getPoint (.getCenter centroid)))
+                              cluster)
+            ;; A byte-array, with each byte being a red, green, or red component interleaved.  An sRGB of palette-lab.
+            palette-rgb (byte-array (concat
+                                     (flatten (mapv (fn [[l a b]]
+                                                      (let [[r g b] (cs/cielab->srgb l a b)]
+                                                        [(cs/normalized->byte r) (cs/normalized->byte g) (cs/normalized->byte b)]))
+                                                    palette-lab))
+                                     ;; Add an extra transparency pixel on.
+                                     (when has-transparent-pixels
+                                       [(byte 0) (byte 0) (byte 0)])))
+            palettized-image (BufferedImage. width height BufferedImage/TYPE_BYTE_INDEXED
+                                             (IndexColorModel. 8 256 palette-rgb 0 false (if has-transparent-pixels
+                                                                                           255
+                                                                                           -1)))
+            raster-buffer (-> palettized-image
+                              (img/get-raster)
+                              (img/get-data-byte-buffer)
+                              (img/get-byte-data))]
+        (dotimes [i (alength raster-buffer)]
+          (aset-byte raster-buffer i (unchecked-byte
+                                      (if-let [pixel (nth lab-stream i)]
+                                        (find-closest-palette-match-index distance-measurer pixel palette-lab)
+                                        255))))
+        palettized-image))))
 
 (defn caption-gif
   [{:keys [width height scenes] :as gif} caption caption-ratio]
