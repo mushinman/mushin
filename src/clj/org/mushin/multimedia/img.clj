@@ -55,9 +55,18 @@
 (defn ints-to-byte-icm
   ^IndexColorModel
   [^ints colors transparent-index]
-  (IndexColorModel. 8 (alength colors) colors 0 (boolean transparent-index) ^Integer (if transparent-index
-                                                                                       (int transparent-index)
-                                                                                       -1) DataBuffer/TYPE_BYTE))
+  (IndexColorModel. 8 (alength colors) colors 0 (boolean transparent-index)
+                    ^Integer (if transparent-index
+                               (int transparent-index)
+                               -1) DataBuffer/TYPE_BYTE))
+
+(defn rgb-bytes-to-byte-icm
+  ^IndexColorModel
+  [^bytes colors transparent-index]
+  (IndexColorModel. 8 (/ (alength colors) 3) colors 0 false
+                    ^Integer (if transparent-index
+                               (int transparent-index)
+                               -1)))
 
 (defn copy-img
   ^BufferedImage

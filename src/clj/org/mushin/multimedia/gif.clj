@@ -19,8 +19,7 @@
            [java.time Duration]
            [javax.imageio.stream ImageInputStream ImageOutputStream]
            [java.awt Transparency]
-           [java.awt.image BufferedImage IndexColorModel]
-           [java.awt.geom AffineTransform]))
+           [java.awt.image BufferedImage IndexColorModel]))
 
 (defonce logical-screen-descriptor "LogicalScreenDescriptor")
 
@@ -122,14 +121,22 @@
 (defn- write-color-model!
   ^IIOMetadataNode
   [^IndexColorModel icm ^IIOMetadataNode node]
-  (dotimes [n (get-gif-colortable-size (.getMapSize icm))]
-    (.appendChild node
-                  (doto (IIOMetadataNode. "ColorTableEntry")
-                    (.setAttribute "index" (str n))
-                    (.setAttribute "red" (str (.getRed icm (int n))))
-                    (.setAttribute "green" (str (.getGreen icm (int n))))
-                    (.setAttribute "blue" (str (.getBlue icm (int n)))))))
-  node)
+  (let [map-size (.getMapSize icm)]
+    (dotimes [n map-size]
+      (.appendChild node
+                    (doto (IIOMetadataNode. "ColorTableEntry")
+                      (.setAttribute "index" (str n))
+                      (.setAttribute "red" (str (.getRed icm (int n))))
+                      (.setAttribute "green" (str (.getGreen icm (int n))))
+                      (.setAttribute "blue" (str (.getBlue icm (int n)))))))
+    (dotimes [n (- (get-gif-colortable-size map-size) map-size)]
+      (.appendChild node
+                    (doto (IIOMetadataNode. "ColorTableEntry")
+                      (.setAttribute "index" (str (+ map-size n)))
+                      (.setAttribute "red" "0")
+                      (.setAttribute "green" "0")
+                      (.setAttribute "blue" "0"))))
+    node))
 
 (defn get-gif-timeframes
   "Create a sequence of frame times for each frame in `gif`"
@@ -434,7 +441,8 @@
                  next-hue-distance
                  closest-distance))))))
 
-(defn pixel-is-transparent
+(defn pixel-is-opaque
+  ^Boolean
   [^Integer p]
   (= (bit-and (bit-shift-right p 24) 0xFF) 0xFF))
 
@@ -443,75 +451,121 @@
   [^BufferedImage img]
   (let [width (.getWidth img)
         height (.getHeight img)
-        ;; Raw ARGB byte array from the image.
-        rgb-stream (.getRGB img 0 0 width height nil 0 width)
-        unique-colors (apply hash-set rgb-stream)
-        has-transparent-pixels (some pixel-is-transparent rgb-stream)]
+        total-pixels (* width height)
+        ;; Integer array used to read lines from the image.
+        pixel-line! (int-array width)
 
-    (if (< (+ (if has-transparent-pixels 1 0) (count unique-colors)) 256)
+        ;; unique-colors: Hash set of unique colors, nor nil if the number of unique colors exceeds 256.
+        ;; opaque-pixel-count: number of pixels that have no transparency.
+        {:keys [unique-colors opaque-pixel-count]}
+        (loop [y 0
+               unique-colors #{}
+               opaque-pixel-count 0]
+          (if (= y height)
+            {:opaque-pixel-count opaque-pixel-count :unique-colors unique-colors}
+            (let [{:keys [unique-colors
+                          ^long opaque-pixel-count]}
+                  (reduce (fn [{:keys [unique-colors
+                                       ^long opaque-pixel-count]} ^Integer pixel]
+                            {:opaque-pixel-count (if (pixel-is-opaque pixel)
+                                                   (inc opaque-pixel-count)
+                                                   opaque-pixel-count)
+                             :unique-colors (if (or (not unique-colors) (>= (count unique-colors) 256))
+                                              nil
+                                              (conj unique-colors pixel))})
+                          {:unique-colors unique-colors
+                           :opaque-pixel-count opaque-pixel-count}
+                          (.getRGB img 0 y width 1 pixel-line! 0 width))]
+              (recur (inc y) unique-colors opaque-pixel-count))))
+
+        has-transparent-pixels (< opaque-pixel-count total-pixels)]
+    (cond
+      (= opaque-pixel-count 0)
+      ;; Empty image:
+      (let [empty-img (img/->buffered-image width height img/img-type-byte-index (img/ints-to-byte-icm (int-array [0]) 0))
+            raster-buffer (-> empty-img
+                              (img/get-raster)
+                              (img/get-data-byte-buffer)
+                              (img/get-byte-data))]
+        (dotimes [i (alength raster-buffer)]
+          (aset-byte raster-buffer i (byte 0)))
+        empty-img)
+
+      (and unique-colors (< (count unique-colors) (- 256 (if has-transparent-pixels 1 0))))
       ;; We don't need to bother quantizing if there's less than 256 colors anyway.
       (img/copy-img img (img/->buffered-image width height
                                               img/img-type-byte-index
                                               (img/ints-to-byte-icm (int-array (condj (vec unique-colors) (if has-transparent-pixels 0 nil)))
                                                                     (if has-transparent-pixels 0 nil))))
+
+      :else
       ;; Quantize the image:
-      (let [;; Vector of double-arrays containing the CIELAB values for each pixel.
-            ;; Or nil, if the pixel is transparent.
-            lab-stream (mapv (fn [^Integer i]
-                               ;; If the pixel is opaque then convert to lab.
-                               ;; Otherwise, nil.
-                               (if (= (bit-and (bit-shift-right i 24) 0xFF) 0xFF)
-                                 (double-array (cs/srgb->cielab (/ (bit-and (bit-shift-right i 16) 0xFF) 255.0)
-                                                                (/ (bit-and (bit-shift-right i 8) 0xFF) 255.0)
-                                                                (/ (bit-and i 0xFF) 255.0)))
-                                 nil))
-                             rgb-stream)
-            opaque-pixel-count (count (filter some? lab-stream))
+      (let [pixel->lab (fn [^Integer i]
+                         ^doubles
+                         ;; If the pixel is opaque then convert to lab.
+                         ;; Otherwise, nil.
+                         (if (pixel-is-opaque i)
+                           (double-array (cs/srgb->cielab (/ (bit-and (bit-shift-right i 16) 0xFF) 255.0)
+                                                          (/ (bit-and (bit-shift-right i 8) 0xFF) 255.0)
+                                                          (/ (bit-and i 0xFF) 255.0)))
+                           nil))
             max-unique-colors (if has-transparent-pixels
                                 255
                                 256)
             ;; A sample of lab-stream excluding transparent pixels.
             image-sample (into [] (comp
                                    (filter some?)
-                                   (random-sample (min 1.0 (/ 200000.0 opaque-pixel-count))) ; TODO if the image is entirely tansparent or empty that will result in a div by 0.
+                                   (random-sample (min 1.0 (/ 200000.0 opaque-pixel-count)))
                                    (map (fn [^doubles d] (DoublePoint. d))))
-                               lab-stream)
+                               ;; Pixels -> CIE lab doubles
+                               (flatten (map (fn [^Integer y] (mapv pixel->lab (.getRGB img 0 y width 1 pixel-line! 0 width))) (range height))))
 
             distance-measurer (EuclideanDistance.)
-            cluster (.cluster (MultiKMeansPlusPlusClusterer.
-                               (KMeansPlusPlusClusterer.
-                                max-unique-colors
-                                10
-                                distance-measurer
-                                (MersenneTwister.))
-                               1)
-                              image-sample)
             ;; Vector of double-arrays in CIELAB.  A quantized version image-sample.
             palette-lab (mapv (fn [^CentroidCluster centroid]
                                 (.getPoint (.getCenter centroid)))
-                              cluster)
-            ;; A byte-array, with each byte being a red, green, or red component interleaved.  An sRGB of palette-lab.
-            palette-rgb (byte-array (concat
-                                     (flatten (mapv (fn [[l a b]]
-                                                      (let [[r g b] (cs/cielab->srgb l a b)]
-                                                        [(cs/normalized->byte r) (cs/normalized->byte g) (cs/normalized->byte b)]))
-                                                    palette-lab))
-                                     ;; Add an extra transparency pixel on.
-                                     (when has-transparent-pixels
-                                       [(byte 0) (byte 0) (byte 0)])))
-            palettized-image (BufferedImage. width height BufferedImage/TYPE_BYTE_INDEXED
-                                             (IndexColorModel. 8 256 palette-rgb 0 false (if has-transparent-pixels
-                                                                                           255
-                                                                                           -1)))
+                              (.cluster (MultiKMeansPlusPlusClusterer.
+                                         (KMeansPlusPlusClusterer.
+                                          max-unique-colors
+                                          10
+                                          distance-measurer
+                                          (MersenneTwister.))
+                                         1)
+                                        image-sample))
+
+            palettized-image
+            (img/->buffered-image
+             width height BufferedImage/TYPE_BYTE_INDEXED
+             (img/rgb-bytes-to-byte-icm
+              (let [result-array (byte-array (* 3 256))]
+                ;; CIELAB palette to array of RGB byte triplets.
+                (dotimes [i (count palette-lab)]
+                  (let [[l a b] (nth palette-lab i)
+                        [r g b] (cs/cielab->srgb l a b)]
+                    (aset-byte result-array (* i 3) (cs/normalized->byte r))
+                    (aset-byte result-array (+ 1 (* i 3)) (cs/normalized->byte g))
+                    (aset-byte result-array (+ 2 (* i 3)) (cs/normalized->byte b))))
+                (when has-transparent-pixels
+                  (aset-byte result-array (* 255 3) 0)
+                  (aset-byte result-array (+ 1 (* 255 3)) 0)
+                  (aset-byte result-array (+ 2 (* 255 3)) 0))
+                result-array)
+              (if has-transparent-pixels
+                255
+                nil)))
+
             raster-buffer (-> palettized-image
                               (img/get-raster)
                               (img/get-data-byte-buffer)
                               (img/get-byte-data))]
-        (dotimes [i (alength raster-buffer)]
-          (aset-byte raster-buffer i (unchecked-byte
-                                      (if-let [pixel (nth lab-stream i)]
-                                        (find-closest-palette-match-index distance-measurer pixel palette-lab)
-                                        255))))
+        (doseq [y (range height)]
+          (.getRGB img 0 y width 1 pixel-line! 0 width)
+          (dotimes [x width]
+            (aset-byte raster-buffer (+ (* y width) x)
+                       (unchecked-byte
+                        (if-let [pixel (pixel->lab (aget pixel-line! x))]
+                          (find-closest-palette-match-index distance-measurer pixel palette-lab)
+                          255)))))
         palettized-image))))
 
 (defn caption-gif
