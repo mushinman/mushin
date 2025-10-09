@@ -7,8 +7,6 @@
 
 (def charset-utf8 StandardCharsets/UTF_8)
 
-(def charset-utf16 StandardCharsets/UTF_16)
-
 (def tmp-dir (System/getProperty "java.io.tmpdir"))
 
 (defn sanitize-file

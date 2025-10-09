@@ -60,6 +60,39 @@
    [:text    [:string {:min 0 :max 500}]]
    [:ratio   [:int {:min 10 :max 70}]]])
 
+(def layer-base
+  [:map
+   [:x :number]
+   [:y :number]
+   [:scale :number]
+   [:rotation :number]])
+
+(def comic
+  [:map
+   ;; Map of resources/uploaded files. Each resource cannot be identified
+   ;; by its name directly since ring won't preserve the file name, so we
+   ;; have to go by its resource name which is a SHA256 sum which is the value
+   ;; in this map. The key is an alias used to reference the resource.
+   [:resource-map
+    [:map-of
+     :keyword :string]]
+
+   [:pages
+    [:vector
+     ;; Text or image or effect.
+     [:merge layer-base
+      [:map [:panel [:enum :text]]
+       [:content :string]
+       [:font-size pos-int?]]]
+
+     [:merge layer-base
+      [:map [:panel [:enum :img]]
+       [:resource :string]]]
+
+     [:merge layer-base
+      [:map [:panel [:enum :effect]]
+       [:content [:enum :brush :pencil :splatter]]]]]]])
+
 (defn- verify-image-upload
   [^InputStream image-stream]
   true) ; TODO
