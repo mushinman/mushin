@@ -192,7 +192,7 @@
         (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
 
       (= file-mime-type "image/gif")
-      ()
+      () ; TODO
       :else
       (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
 

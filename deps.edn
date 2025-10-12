@@ -104,4 +104,4 @@
                   :extra-paths ["env/dev/clj" "env/dev/resources" "env/test/resources" "test/clj"]
                   :main-opts   ["-e" "(require 'pjstadig.humane-test-output) (pjstadig.humane-test-output/activate!)"
                                 "-m" "cognitect.test-runner"]
-                  :jvm-opts   ["--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED"]}}}
+                  :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED"]}}}
