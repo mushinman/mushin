@@ -32,7 +32,9 @@
   fill: #000;
 }
 image { image-rendering: auto; }"]
+      ;(.setAttributeNS mushin-el "http://www.w3.org/2000/xmlns/" "xmlns:mushin" "urn:mushin")
       [:metadata
+       {:urn:mushin/xmlns:mushin "http://www.w3.org/2000/xmlns/"}
        [:urn:mushin/mushin:content-image#mushin-metadata
         {:urn:musin/mushin:pxw (long image-pixel-width)
          :urn:musin/mushin:pxh (long image-pixel-height)}]]
@@ -47,6 +49,7 @@ image { image-rendering: auto; }"]
         :width "100%"
         :height (format "%.0f" img-virtual-height)}
        content-href]
+
       [:text#caption
        {:x 500
         :y 90}

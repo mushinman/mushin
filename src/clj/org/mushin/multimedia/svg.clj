@@ -292,7 +292,7 @@
    (fn [e]
      (cond
        (map? e)
-       e
+       (walk/postwalk (fn [x] (if (map? x) (update-keys x kebab-case->camel-case) x))  e)
 
        (tag? e)
        ;; Create the tag and add children, attributes.
