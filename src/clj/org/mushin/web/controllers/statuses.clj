@@ -136,7 +136,7 @@
             full-img-height (+ caption-pixel-height height)
             rendered-caption-img-name (create-resource-from-static-img!
                                        (svg/render-document
-                                        (caption/make-meme-svg width height
+                                        (caption/caption-svg width height
                                                        (files/path->uri output-file-path) text caption-pixel-height)
                                         width full-img-height)
                                        resource-map mime-type)
@@ -144,7 +144,7 @@
             caption-svg-name
             (let [temp-svg (files/create-temp-file)]
               (try
-                (svg/write-svgdoc-to-file! (caption/make-meme-svg width height
+                (svg/write-svgdoc-to-file! (caption/caption-svg width height
                                                           (res/to-url resource-map resource-name) text caption-pixel-height)
                                            temp-svg)
                 (let [resource-name (str (digest/digest->b64u (digest/digest-file temp-svg)) ".svg")]

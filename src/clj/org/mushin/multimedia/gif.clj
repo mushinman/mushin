@@ -588,7 +588,7 @@
                        (let [temp-file (files/create-temp-file)]
                          (try
                            (img/write-img-to (:frame (first scenes)) temp-file)
-                           (svg/render-document (caption/make-meme-svg content-pixel-width content-pixel-height temp-file caption caption-pixel-height)
+                           (svg/render-document (caption/caption-svg content-pixel-width content-pixel-height temp-file caption caption-pixel-height)
                                                 content-pixel-width final-image-pixel-height)
                            (finally
                              (files/delete-if-exists temp-file)))))]
