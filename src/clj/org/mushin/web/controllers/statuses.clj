@@ -11,18 +11,15 @@
             [org.mushin.multimedia.captions :as caption]
             [org.mushin.multimedia.svg :as svg]
             [org.mushin.mime :as mime]
+            [clojure.walk :as walk]
             [org.mushin.multimedia.img :as img]
             [clojure.java.io :as io]
             [org.mushin.digest :as digest]
             [org.mushin.codecs :as codecs]
             [org.mushin.multimedia.gif :as gif])
   (:import [java.io InputStream]
-           [javax.imageio ImageIO ImageWriter ImageReader IIOImage ImageTypeSpecifier]
-           [javax.imageio.metadata IIOMetadata IIOMetadataNode]
-           [javax.imageio.stream ImageInputStream MemoryCacheImageInputStream ImageOutputStream]
-
-           [java.awt.image BufferedImage RenderedImage IndexColorModel]
-           [java.nio ByteOrder]))
+           [javax.imageio ImageIO]
+           [java.awt.image BufferedImage]))
 
 (def create-picture-post-body
   [:map
@@ -92,6 +89,10 @@
      [:merge layer-base
       [:map [:panel [:enum :effect]]
        [:content [:enum :brush :pencil :splatter]]]]]]])
+
+(defn- comic-dsl->hiccough
+  [resource-map comic]
+  )
 
 (defn- verify-image-upload
   [^InputStream image-stream]

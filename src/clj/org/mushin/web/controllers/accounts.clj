@@ -2,7 +2,8 @@
   (:require
             [org.mushin.db.users :as db-users]
             [ring.util.http-response :refer [conflict! created]]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [org.mushin.db.util :as db]))
 
 (def create-account-body
   [:map
@@ -19,5 +20,7 @@
     (log/info {:event :creating-user-failed :nickname nickname :reason :user-already-exists})
     (conflict! {:error "user_already_exists" :message "A user by that nickname already exists"}))
   (log/info {:event :creating-user :nickname nickname})
-  (let [{:keys [xt/id]} (db-users/create-user xtdb-node nickname password)]
+  (let [{:keys [xt/id]} (db/submit-tx xtdb-node
+                                      [[:put-docs :mushin.db/users
+                                        (db-users/create-user xtdb-node nickname password)]]) ]
     (created (str "/users/" id) {:id id})))

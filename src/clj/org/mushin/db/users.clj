@@ -1,6 +1,7 @@
 (ns org.mushin.db.users
   (:require [xtdb.api :as xt]
             [org.mushin.db.util :as db-util]
+            [clj-uuid :as uuid]
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
             [malli.experimental.time :as mallt]))
@@ -35,6 +36,7 @@
                      [:joined-at (mallt/-zoned-date-time-schema)]
                      [:last-logged-in-at (mallt/-zoned-date-time-schema)]]})
 
+
 (defn get-user-by-id
   ([xtdb-node id] (db-util/lookup-by-id xtdb-node :mushin.db/users id))
   ([xtdb-node cols id] (db-util/lookup-first xtdb-node :mushin.db/users cols {:xt/id id})))
@@ -56,18 +58,13 @@
       first
       :xt/id))
 
-(defn create-user [xtdb-node nickname password & email]
-  (let [now (jt/zoned-date-time)
-        doc {:xt/id (random-uuid)
+(defn create-user [nickname password & email]
+  (let [now (jt/zoned-date-time)]
+    (cond-> {:xt/id (uuid/v7)
              :nickname nickname
              :log-counter 0
              :description ""
              :password-hash (crypt/hash-password password)
              :joined-at now
-             :last-logged-in-at now}]
-    (db-util/execute-tx xtdb-node
-                        [[:put-docs :mushin.db/users
-                          (if email
-                            (assoc doc :email email)
-                            doc)]])
-    doc))
+             :last-logged-in-at now}
+      email (assoc :email email))))

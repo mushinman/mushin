@@ -4,6 +4,7 @@
 (ns org.mushin.db.util
   (:require [clojure.string :as str]
             [malli.core :as malli]
+            [clj-uuid :as uuid]
             [xtdb.api :as xt]
             [org.mushin.utils :refer [concat-kw]])
   (:import [xtdb.api Xtdb]))
@@ -128,7 +129,7 @@
                       (merge cur-doc doc)
                       (if (:xt/id doc)
                         doc
-                        (merge {:xt/id (random-uuid)} doc)))]
+                        (merge {:xt/id (uuid/v7)} doc)))]
         (check-table-schema table new-doc)))
     [op]))
 
