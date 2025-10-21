@@ -6,8 +6,11 @@
             [java-time.api :as jt]
             [malli.experimental.time :as mallt]))
 
+(def ^:private nickname-regex "Regular that describes a valid nickname" #"\w+")
+
 (def nickname-schema
-  [:nickname  [:and [:and [:string {:min 1 :max 32}] [:re #"\w+"]]]])
+  "Schema for the nickname"
+  [:nickname [:and [:and [:string {:min 1 :max 32}] [:re nickname-regex]]]])
 
 (def user-schema
   "Schema for users.
@@ -18,6 +21,8 @@
   | `log-counter`       | int       | How many times this user has logged in counted at most once daily |
   | `nickname`          | string    | The user's nickname                                               |
   | `password-hash`     | string    | Password hash                                                     |
+  | `roles`             | vec[uuid] | List of keys to the role table.                                   |
+  | `tags`              | keys      | RBAC object tags.                                                 |
   | `description`       | string    | The user's description                                            |
   | `joined-at`         | Timestamp | The time the user created their account                           |
   | `last-logged-in-at` | Timestamp | The last the user logged in                                       |
@@ -26,16 +31,29 @@
    ::short-string [:string {:min 1 :max 256}]
    ::long-string  [:string {:min 1 :max 4096}]
 
-   :mushin.db/users [:map
-                     [:xt/id     :uuid]
-                     [:email  {:optional true}  [:and ::short-string [:re #".+@.+"]]]
-                     [:log-counter     :int]
-                     [:nickname        :string]
-                     [:password-hash   :string]
-                     [:description     :string]
-                     [:joined-at (mallt/-zoned-date-time-schema)]
-                     [:last-logged-in-at (mallt/-zoned-date-time-schema)]]})
+   :mushin.db/users
+   [:map
+    [:xt/id     :uuid]
+    [:email {:optional true}  [:and ::short-string [:re #".+@.+"]]]
+    [:log-counter             :int]
+    [:nickname                :string]
+    [:password-hash           :string]
+    [:description             :string]
+    [:roles                   [:set :uuid]]
+    [:tags                    [:set :keyword]]
+    [:joined-at               (mallt/-zoned-date-time-schema)]
+    [:last-logged-in-at       (mallt/-zoned-date-time-schema)]]})
 
+(defn is-valid-nickname
+  "Checks if a nickname is valid.
+
+  # Arguments
+    - `nickname`: A nickname.
+
+  # Return value
+  True if the nickname is valid, false if not."
+  [nickname]
+  (re-matches nickname-regex nickname))
 
 (defn get-user-by-id
   ([xtdb-node id] (db-util/lookup-by-id xtdb-node :mushin.db/users id))
@@ -63,6 +81,8 @@
     (cond-> {:xt/id (uuid/v7)
              :nickname nickname
              :log-counter 0
+             :roles #{}
+             :tags #{}
              :description ""
              :password-hash (crypt/hash-password password)
              :joined-at now

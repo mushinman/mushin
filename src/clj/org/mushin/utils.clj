@@ -1,5 +1,16 @@
 (ns org.mushin.utils)
 
+(defn disjoint?
+  "Are set1 and set2 disjoint?"
+  [set1 set2]
+  (let [[smaller larger] (if (< (count set1) (count set2)) [set1 set2] [set2 set1])]
+    (every? #(not (contains? larger %)) smaller)))
+
+(defn intersecting?
+  "Are set1 and set2 intersecting?"
+  [set1 set2]
+  (not (disjoint? set1 set2)))
+
 (defn stringify-kw
   "Turn a keyword into a string, preserving namespace."
   [kw]

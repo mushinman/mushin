@@ -15,7 +15,8 @@
   | `reply-to`   | UUID/Key for `statuses` table     | Status that this status is a reply to |
   | `created-at` | Timestamp                         | The time a user created this post     |
   | `updated-at` | Timestamp                         | The time a user edited this post      |
-  | `tags`       | string vector                     | Tags for searching                    |
+  | `labels`     | set[keywords]                     | RBAC object labels.                   |
+  | `tags`       | set[strings]                      | Tags for searching                    |
   | `content`    | Text and/or media                 | The content of the post               |
   "
   {:mushin.db/statuses
@@ -26,7 +27,8 @@
     [:reply-to {:optional true} :uuid]
     timestamps/created-at
     timestamps/updated-at
-    [:tags                      [:vector :string]]
+    [:tags                      [:set :keyword]]
+    [:labels                    [:set :string]]
     [:content                   [:or [:map [:text :string]]
                                  [:map
                                   [:image :uuid]
@@ -34,14 +36,15 @@
 
 (defn create-status
   [creator content & opt-status]
-  (let [{:keys [reply-to created-at updated-at tags]} (first opt-status)
+  (let [{:keys [reply-to created-at updated-at tags labels]} (first opt-status)
         now (jt/zoned-date-time)]
     (cond-> {:xt/id (uuid/v7)
              :user       creator
              :creator    creator
              :created-at (or created-at now)
              :updated-at (or updated-at now)
-             :tags       (or tags [])
+             :tags       (or tags #{})
+             :labels     (or labels #{})
              :content    content}
       reply-to (assoc :reply-to reply-to))))
 

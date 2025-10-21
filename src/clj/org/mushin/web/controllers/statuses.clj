@@ -90,9 +90,20 @@
       [:map [:panel [:enum :effect]]
        [:content [:enum :brush :pencil :splatter]]]]]]])
 
+(defn- comic-tag?
+  [node]
+  (and (vector? node) (keyword? (first node))))
+;; TODO finish
 (defn- comic-dsl->hiccough
   [resource-map comic]
-  )
+  (walk/postwalk
+   (fn [node]
+    (cond
+      (comic-tag? node)
+      ()
+
+      :else node))
+   comic))
 
 (defn- verify-image-upload
   [^InputStream image-stream]
