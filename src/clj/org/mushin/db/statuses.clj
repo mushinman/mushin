@@ -1,6 +1,7 @@
 (ns org.mushin.db.statuses
   (:require [org.mushin.db.util :as db]
             [java-time.api :as jt]
+            [org.mushin.db.authorization :as authz]
             [clj-uuid :as uuid]
             [xtdb.api :as xt]
             [org.mushin.db.timestamps :as timestamps]))
@@ -15,8 +16,7 @@
   | `reply-to`   | UUID/Key for `statuses` table     | Status that this status is a reply to |
   | `created-at` | Timestamp                         | The time a user created this post     |
   | `updated-at` | Timestamp                         | The time a user edited this post      |
-  | `labels`     | set[keywords]                     | RBAC object labels.                   |
-  | `tags`       | set[strings]                      | Tags for searching                    |
+  | `tags`       | set[keywords]                       | RBAC object labels.                 |
   | `content`    | Text and/or media                 | The content of the post               |
   "
   {:mushin.db/statuses
@@ -27,34 +27,25 @@
     [:reply-to {:optional true} :uuid]
     timestamps/created-at
     timestamps/updated-at
-    [:tags                      [:set :keyword]]
-    [:labels                    [:set :string]]
     [:content                   [:or [:map [:text :string]]
                                  [:map
                                   [:image :uuid]
-                                  [:text :string]]]]]})
+                                  [:text :string]]]]
+    ;; authz
+    [:object                  authz/authorization-object-schema]]})
 
 (defn create-status
   [creator content & opt-status]
-  (let [{:keys [reply-to created-at updated-at tags labels]} (first opt-status)
+  (let [{:keys [reply-to created-at updated-at]} (first opt-status)
         now (jt/zoned-date-time)]
     (cond-> {:xt/id (uuid/v7)
              :user       creator
              :creator    creator
+             :object authz/default-object-doc
              :created-at (or created-at now)
              :updated-at (or updated-at now)
-             :tags       (or tags #{})
-             :labels     (or labels #{})
              :content    content}
       reply-to (assoc :reply-to reply-to))))
-
-(defn update-status
-  [id creator content & {:keys [tags]}]
-  (cond-> {:xt/id id
-           :creator creator
-           :updated-at (jt/zoned-date-time)
-           :content content}
-    tags (assoc :tags tags)))
 
 (defn get-status-by-id
   ([xtdb-node cols id] (db/lookup-by-id xtdb-node :mushin.db/statuses cols id))

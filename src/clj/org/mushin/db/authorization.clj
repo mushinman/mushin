@@ -1,6 +1,7 @@
 (ns org.mushin.db.authorization
   (:require [clj-uuid :as uuid]
             [org.mushin.db.util :as db]
+            [org.mushin.utils :refer [contains-one-of?]]
             [org.mushin.utils :as util]
             [clojure.set :as set]
             [xtdb.api :as xt]))
@@ -23,6 +24,15 @@
    [:except-tags         [:set :keyword]]
    [:match               [:enum :any :all]]])
 
+(def authorization-subject-schema
+  [:map
+   [:roles         [:set :uuid]]
+   [:tags          [:set :keyword]]
+   [:capabilities  [:set :keyword]]])
+
+(def authorization-object-schema
+  [:map
+   [:tags          [:set :keyword]]])
 
 (def authorization-role-schema
   "Schema for role.
@@ -39,6 +49,16 @@
     [:name             :string]
     [:rules            [:vec authorization-effect-schema]]
     [:capabilities     [:set :keyword]]]})
+
+(def default-subject-doc
+  "An empty subject document, conforming to `authorization-subject-schema`."
+  {:roles #{}
+   :tags #{}
+   :capabilities #{}})
+
+(def default-object-doc
+  "An empty object document, conforming to `authorization-object-schema`."
+  {:tags #{}})
 
 (defn create-role-doc
   "Create a role document. Will allocate a new `xt/id`.
@@ -68,6 +88,7 @@
   (xt/q xtdb-node (xt/template (-> (from :mushin.db/authz [* {:name ~name}])
                                    (limit 1)))))
 
+
 (defn do-rules-allow?
   [rules act object-tags]
   (let [object-tags (set object-tags)
@@ -90,6 +111,25 @@
            (fn [{:keys [effect]}]
              (= effect :allow))
            effects)))))
+
+(defn can-<verb>-user?
+  [{{:keys [capabilities]} :subject :keys [xt/id]} verb object-user-id]
+  (or (= id object-user-id)
+      (case verb
+        (:create :update)
+        (contains-one-of? capabilities :user.profile:create :user.profile:update)
+        :delete
+        (contains? capabilities :user.profile:delete)
+        :view
+        (contains? capabilities :user.profile:view))))
+
+(defn allowed?
+  [subject verb object-type object]
+  (case object-type
+    ;; User can only modify if self, or has the capability.
+    :user (can-<verb>-user? subject verb (:xt/id object))
+    ;; Ditto for statuses.
+    :status (can-<verb>-user? subject verb (:user object))))
 
 (defn can-user?
   "Determine if a user can perform an action on an object.

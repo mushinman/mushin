@@ -11,6 +11,13 @@
   [set1 set2]
   (not (disjoint? set1 set2)))
 
+(defmacro contains-one-of?
+  [coll & keys]
+  (let [c (gensym "col__")]
+    (when (seq keys)
+      `(let [~c ~coll]
+         (or ~@(for [k keys] `(contains? ~c ~key)))))))
+
 (defn stringify-kw
   "Turn a keyword into a string, preserving namespace."
   [kw]

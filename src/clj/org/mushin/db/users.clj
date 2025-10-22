@@ -2,6 +2,7 @@
   (:require [xtdb.api :as xt]
             [org.mushin.db.util :as db-util]
             [clj-uuid :as uuid]
+            [org.mushin.db.authorization :as authz]
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
             [malli.experimental.time :as mallt]))
@@ -42,7 +43,10 @@
     [:roles                   [:set :uuid]]
     [:tags                    [:set :keyword]]
     [:joined-at               (mallt/-zoned-date-time-schema)]
-    [:last-logged-in-at       (mallt/-zoned-date-time-schema)]]})
+    [:last-logged-in-at       (mallt/-zoned-date-time-schema)]
+    ;; authz
+    [:object                  authz/authorization-object-schema]
+    [:subject                 authz/authorization-subject-schema]]})
 
 (defn is-valid-nickname
   "Checks if a nickname is valid.
@@ -81,9 +85,9 @@
     (cond-> {:xt/id (uuid/v7)
              :nickname nickname
              :log-counter 0
-             :roles #{}
-             :tags #{}
              :description ""
+             :object authz/default-object-doc
+             :subject authz/default-subject-doc
              :password-hash (crypt/hash-password password)
              :joined-at now
              :last-logged-in-at now}
