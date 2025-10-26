@@ -6,6 +6,7 @@
    [malli.experimental.time :as malt]
    [org.mushin.db.users :as users]
    [org.mushin.db.remember-me :as remember-me]
+   [org.mushin.db.relationship :as rel]
    [org.mushin.db.statuses :as statuses]
    [org.mushin.db.authorization :as authz]))
 
@@ -22,7 +23,7 @@
   "Adds database schemas to the malli registry."
   []
   (let [all-schemas (merge users/user-schema statuses/statuses-schema remember-me/remember-me
-                           authz/authorization-role-schema)]
+                           authz/authorization-role-schema authz/actor-role-schema rel/relationship-schema)]
     ;; Add our DB schemas.
     (mallr/set-default-registry!
      (mallr/composite-registry (mallc/default-schemas) (malt/schemas) all-schemas (mallr/mutable-registry schema-store)))))

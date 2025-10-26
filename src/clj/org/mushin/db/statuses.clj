@@ -6,6 +6,7 @@
             [xtdb.api :as xt]
             [org.mushin.db.timestamps :as timestamps]))
 
+
 (def statuses-schema
   "Schema for statuses.
   | Key          | Type                              | Meaning                               |
@@ -16,7 +17,7 @@
   | `reply-to`   | UUID/Key for `statuses` table     | Status that this status is a reply to |
   | `created-at` | Timestamp                         | The time a user created this post     |
   | `updated-at` | Timestamp                         | The time a user edited this post      |
-  | `tags`       | set[keywords]                       | RBAC object labels.                 |
+  | `tags`       | set[keywords]                     | RBAC object labels.                   |
   | `content`    | Text and/or media                 | The content of the post               |
   "
   {:mushin.db/statuses
@@ -31,20 +32,19 @@
                                  [:map
                                   [:image :uuid]
                                   [:text :string]]]]
-    ;; authz
-    [:object                  authz/authorization-object-schema]]})
+    authz/authorization-object-schema]})
 
 (defn create-status
   [creator content & opt-status]
   (let [{:keys [reply-to created-at updated-at]} (first opt-status)
         now (jt/zoned-date-time)]
-    (cond-> {:xt/id (uuid/v7)
-             :user       creator
-             :creator    creator
-             :object authz/default-object-doc
-             :created-at (or created-at now)
-             :updated-at (or updated-at now)
-             :content    content}
+    (cond-> (merge {:xt/id (uuid/v7)
+                    :user       creator
+                    :creator    creator
+                    :created-at (or created-at now)
+                    :updated-at (or updated-at now)
+                    :content    content}
+                   authz/default-object-doc)
       reply-to (assoc :reply-to reply-to))))
 
 (defn get-status-by-id

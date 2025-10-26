@@ -1,8 +1,7 @@
 (ns org.mushin.db.authorization
   (:require [clj-uuid :as uuid]
             [org.mushin.db.util :as db]
-            [org.mushin.utils :refer [contains-one-of?]]
-            [org.mushin.utils :as util]
+            [org.mushin.utils :refer [contains-one-of? contains-key?] :as util]
             [clojure.set :as set]
             [xtdb.api :as xt]))
 
@@ -24,15 +23,8 @@
    [:except-tags         [:set :keyword]]
    [:match               [:enum :any :all]]])
 
-(def authorization-subject-schema
-  [:map
-   [:roles         [:set :uuid]]
-   [:tags          [:set :keyword]]
-   [:capabilities  [:set :keyword]]])
-
 (def authorization-object-schema
-  [:map
-   [:tags          [:set :keyword]]])
+  [:tags          [:set :keyword]])
 
 (def authorization-role-schema
   "Schema for role.
@@ -41,26 +33,46 @@
   | `id`           | uuid         | Row ID.                                            |
   | `name`         | string       | The name of the role.                              |
   | `rules`        | map          | Vector of rules.                                   |
-  | `capabilities` | set[keyword] | Set of admin capabilities like :admin.roles:write. |
+  | `perms` | set[keyword] | Set of admin perms like :admin.roles:write. |
+
+  Roles have the constraint that the `:name` column must be unique.
   "
-  {:mushin.db/authz
+  {:mushin.db/roles
    [:map {:closed true}
     [:xt/id            :uuid]
     [:name             :string]
     [:rules            [:vec authorization-effect-schema]]
-    [:capabilities     [:set :keyword]]]})
-
-(def default-subject-doc
-  "An empty subject document, conforming to `authorization-subject-schema`."
-  {:roles #{}
-   :tags #{}
-   :capabilities #{}})
+    [:perms     [:set :keyword]]]})
 
 (def default-object-doc
   "An empty object document, conforming to `authorization-object-schema`."
   {:tags #{}})
 
-(defn create-role-doc
+;; If XTDB ever supports tuples for xt/id this would be better represented as:
+;; [:xt/id [:tuple :uuid :uuid]] where the UUIDs are a role-id and a user-id
+;; respectively.
+(def actor-role-schema
+  {:mushin.db/actor-roles
+   [:map
+   [:xt/id          :uuid]
+   [:role-id        :uuid]
+   [:actor-id       :uuid]]})
+
+(defn actor-role-doc
+  [role-id actor-id]
+  {:xt/id (uuid/v7)
+   :role-id role-id
+   :actor-id actor-id})
+
+(defn insert-actor-role-tx
+  [doc]
+  (db/insert-unless-exists-tx :mushin.db/actor-roles doc :role-id :actor-id))
+
+(defn insert-role-tx
+  [doc]
+  (db/insert-unless-exists-tx :mushin.db/roles doc :name))
+
+(defn role-doc
   "Create a role document. Will allocate a new `xt/id`.
 
   # Arguments
@@ -69,11 +81,11 @@
 
   # Return value
   A new role document."
-  [name rules]
+  [name rules & perms]
   {:xt/id (uuid/v7)
    :name name
    :rules rules
-   :capabilities #{}})
+   :perms (set perms)})
 
 (defn get-role-by-name
   "Get role by name.
@@ -85,7 +97,7 @@
   # Return value
   The role with the name `name`, or nil if no such role exists."
   [xtdb-node name]
-  (xt/q xtdb-node (xt/template (-> (from :mushin.db/authz [* {:name ~name}])
+  (xt/q xtdb-node (xt/template (-> (from :mushin.db/roles [* {:name ~name}])
                                    (limit 1)))))
 
 
@@ -112,35 +124,47 @@
              (= effect :allow))
            effects)))))
 
-(defn can-<verb>-user?
-  [{{:keys [capabilities]} :subject :keys [xt/id]} verb object-user-id]
-  (or (= id object-user-id)
-      (case verb
-        (:create :update)
-        (contains-one-of? capabilities :user.profile:create :user.profile:update)
-        :delete
-        (contains? capabilities :user.profile:delete)
-        :view
-        (contains? capabilities :user.profile:view))))
+(defn object-tags
+  [xtdb-node table object-id]
+  (->
+   (xt/q xtdb-node (xt/template
+                   (from ~table [tags {:xt/id ~object-id}])))
+   first
+   :tags))
 
-(defn allowed?
-  [subject verb object-type object]
+(defn permissions-allow?
+  [perms action object-type]
   (case object-type
-    ;; User can only modify if self, or has the capability.
-    :user (can-<verb>-user? subject verb (:xt/id object))
-    ;; Ditto for statuses.
-    :status (can-<verb>-user? subject verb (:user object))))
+    (:user :status) (case action
+                      :update
+                      (contains-key? perms :user.profile:update)
+                      :delete
+                      (contains-key? perms :user.profile:delete)
+                      :view
+                      (contains-key? perms :user.profile:view)
+                      false)))
 
-(defn can-user?
-  "Determine if a user can perform an action on an object.
+(defn compress-roles
+  "Compress roles into a vector of their effects and a set of their permissions.
 
   # Arguments
-    - `xtdb-node`: A DB instance.
-    - `user`: The 'subject' of the action, a user acctount. Either a UUID or a nickname.
-    - `action`: The action to perform on `object`.
-    - `object`: The object to perform the action on.
+   - `roles`: A seq of role data.
 
   # Return value
-  `true` if `user` can perform `action` on `object`, otherwise `false`."
-  [xtd-node user action object]
-  )
+  A tuple with a vector of every rule of every role, and a set of permissions."
+  [roles]
+  (reduce
+   (fn [[effects all-perms] {:keys [rules perms]}]
+     [(into effects (flatten rules)) (set/union all-perms perms)])
+   [[] #{}]
+   roles))
+
+(defn actor-roles
+  [xtdb-node user-id]
+  (->
+   (xt/q
+    xtdb-node
+    (xt/template
+     (-> (unify (from :mushin.db/actor-roles [role-id {:actor-id ~user-id}])
+                (from :mushin.db/roles [name rules perms {:xt/id role-id}]))
+         (return name rules perms))))))

@@ -72,4 +72,3 @@
                                                            (return hashed-validator user xt/id)))))]
     (when (digest/eq (codecs/b64u->bytes (:hashed-validator token)) (digest/sha-256-bytes (codecs/b64u->bytes validator)))
       (dissoc token :hashed-validator))))
-

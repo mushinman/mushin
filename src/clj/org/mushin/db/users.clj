@@ -22,11 +22,11 @@
   | `log-counter`       | int       | How many times this user has logged in counted at most once daily |
   | `nickname`          | string    | The user's nickname                                               |
   | `password-hash`     | string    | Password hash                                                     |
-  | `roles`             | vec[uuid] | List of keys to the role table.                                   |
-  | `tags`              | keys      | RBAC object tags.                                                 |
-  | `description`       | string    | The user's description                                            |
+  | `local`             | bool      | True if the user is local, false if foreign                       |
+  | `bio`               | string    | The user's biography                                              |
   | `joined-at`         | Timestamp | The time the user created their account                           |
   | `last-logged-in-at` | Timestamp | The last the user logged in                                       |
+  | `privacy-level`     | keyword   | Level of privacy. Can be `:open`, `:open-instance`, `:locked`     |
   "
   {::tiny-string  [:string {:min 1 :max 32}]
    ::short-string [:string {:min 1 :max 256}]
@@ -34,19 +34,18 @@
 
    :mushin.db/users
    [:map
-    [:xt/id     :uuid]
+    [:xt/id                   :uuid]
     [:email {:optional true}  [:and ::short-string [:re #".+@.+"]]]
     [:log-counter             :int]
     [:nickname                :string]
     [:password-hash           :string]
-    [:description             :string]
-    [:roles                   [:set :uuid]]
-    [:tags                    [:set :keyword]]
+    [:bio                     :string]
+    [:privacy-level           [:enum :open :open-instance :locked]]
+    [:local?                  :boolean]
     [:joined-at               (mallt/-zoned-date-time-schema)]
-    [:last-logged-in-at       (mallt/-zoned-date-time-schema)]
-    ;; authz
-    [:object                  authz/authorization-object-schema]
-    [:subject                 authz/authorization-subject-schema]]})
+    [:last-logged-in-at       (mallt/-zoned-date-time-schema)] ; TODO maybe move to a new table for user events?
+    authz/authorization-object-schema]})
+
 
 (defn is-valid-nickname
   "Checks if a nickname is valid.
@@ -82,13 +81,61 @@
 
 (defn create-user [nickname password & email]
   (let [now (jt/zoned-date-time)]
-    (cond-> {:xt/id (uuid/v7)
-             :nickname nickname
-             :log-counter 0
-             :description ""
-             :object authz/default-object-doc
-             :subject authz/default-subject-doc
-             :password-hash (crypt/hash-password password)
-             :joined-at now
-             :last-logged-in-at now}
+    (cond-> (merge
+             {:xt/id (uuid/v7)
+              :nickname nickname
+              :local? true
+              :log-counter 0
+              :bio ""
+              :password-hash (crypt/hash-password password)
+              :joined-at now
+              :privacy-level :open
+              :last-logged-in-at now}
+             authz/default-object-doc)
       email (assoc :email email))))
+
+(defn check-user-can-view-user
+  "Check if the viewer can view the viewee.
+
+  # Arguments
+   - `xtdb-node`: XTDB node
+   - `viewer-id`: ID of the user attempting to view the viewee.
+   - `viewee-id`: ID of the user who is being viewed by the viewer.
+
+  # Return value
+  | Keyword    | Meaning                                                                          |
+  |:-----------|:---------------------------------------------------------------------------------|
+  | `:blocked` | The viewee has the viewer blocked.                                               |
+  | `:locked`  | The viewee has a locked account, and the viewer does not permissions to view it. |
+  | `:allowed` | The viewee can view the viewee.                                                  |
+  "
+  [xtdb-node viewer-id viewee-id]
+  (->
+   (xt/q
+    xtdb-node
+    (xt/template
+     (-> (unify
+          (from :mushin.db/users [{:xt/id ~viewer-id} {:local? viewer-local?}])
+          (from :mushin.db/users [{:xt/id ~viewee-id} {:privacy-level viewee-privacy-level}]))
+         (with
+          {:blocked? (exists? (from :mushin.db/relationships [{:type :block :source ~viewee-id :target ~viewer-id}]))
+           :followed? (exists? (from :mushin.db/relationships [{:type :follow :source ~viewer-id :target ~viewee-id}]))})
+         ;; As of XTDB 2.0.0 we need this second (with) expression because if-some and let don't work
+         ;; (see https://github.com/xtdb/xtdb/issues/3179), and you can't use symbols defined in a (with)
+         ;; inside the same expression.
+         ;; TODO change to a if-some when the above bug is fixed.
+         (with
+          {:reject-reason
+           (cond
+             blocked? :blocked
+             (or (and (= viewee-privacy-level :locked) (not followed?))
+                 (and (= viewee-privacy-level :open-instance) (not viewer-local?)))
+             :locked
+             ;; The "true" isn't required but it shuts up lsp.
+             true false)})
+         (return {:result
+                  (if reject-reason
+                    reject-reason
+                    :allowed)}))))
+   first
+   :result))

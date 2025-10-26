@@ -40,9 +40,9 @@
 
     (log/info "Successfully logged in user" {:event :logged-in :user-id user-id})
     (db/submit-tx xtdb-node [[:put-docs :mushin.db/remember-me doc]])
-    (->  (ok {:message "Logged in"})
-         (assoc :session (assoc session :user-id user-id))
-         (remember-me-cookie selector validator valid-for))))
+    (-> (ok {:message "Logged in"})
+        (assoc :session (assoc session :user-id user-id))
+        (remember-me-cookie selector validator valid-for))))
 
 (defn logout! [{xtdb-node :xtdb-node}
                {session :session cookies :cookies}]

@@ -7,8 +7,9 @@
 
 
 ;; TODO probably have multiple ways to store the tokens, e.g. db, in-memory, some external service etc..
-;; TODO implement.
-(defn check-bearer [auth-arg xtdb-node]
+(defn check-bearer
+  ;; TODO finish this
+  [xtdb-node auth-arg]
   (when-not auth-arg
     (invalid-auth! {:error "invalid_basic" :message "the provided bearer authorization header had no credentials"})))
 

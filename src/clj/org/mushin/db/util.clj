@@ -5,6 +5,7 @@
   (:require [clojure.string :as str]
             [malli.core :as malli]
             [clj-uuid :as uuid]
+            [honey.sql :as sql]
             [xtdb.api :as xt]
             [org.mushin.utils :refer [concat-kw]])
   (:import [xtdb.api Xtdb]))
@@ -147,6 +148,27 @@
             (into tx (compile-op node op)))
           []
           local-tx))
+
+(defn insert-unless-exists-tx
+  "Create a transaction for inserting document into a table unless that table already contains a duplicate document.
+  When transactioned will throw a `xtdb.error.Conflict` if the check fails.
+
+  # Arguments
+   - `table`: The name of the table to insert into.
+   - `doc`: The document to submit.
+   - `columns`: A vector of columns used to check if the document already exists.
+
+  # Return value
+  A vector of XTDB transactions."
+  [table doc & columns]
+  ;; This is kinda ugly but so far as I know this is only way to do this.
+  [[:sql (str "ASSERT NOT EXISTS("
+              (-> [:xtql (xt/template
+                          (-> (from ~table [~(select-keys doc columns)])
+                              (limit 1))) ]
+                  sql/format
+                  first) ")")]
+   [:put-docs table doc]])
 
 (defn submit-tx [node local-tx]
   (xt/submit-tx node (compile-tx node local-tx)))

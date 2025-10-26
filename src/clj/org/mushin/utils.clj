@@ -16,7 +16,13 @@
   (let [c (gensym "col__")]
     (when (seq keys)
       `(let [~c ~coll]
-         (or ~@(for [k keys] `(contains? ~c ~key)))))))
+         (or ~@(for [k keys] `(and (contains? ~c ~k)
+                                   ~k)))))))
+
+(defn contains-key?
+  [coll key]
+  (and (contains? coll key)
+       key))
 
 (defn stringify-kw
   "Turn a keyword into a string, preserving namespace."
