@@ -72,21 +72,7 @@
              :parameters {:body oauth/create-code-post-body}
              :middleware [state/wrap-state]}}]]
    ["/health"
-    ;; note that use of the var is necessary
-    ;; for reitit to reload routes without
-    ;; restarting the system
-    {:get #'health/healthcheck!}]
-   ["/status"
-    {:get {:handler (partial health/db-status opts)}}]
-   ["/status-q"
-    {:get {:handler (partial health/dq-texas opts)}}]
-   ["/patch-test"
-    {:get {:handler (partial health/dbq-patch opts)}}]
-   ["/patch-test2"
-    {:get {:handler (partial health/dbq-patch-incomplete opts)}}]
-   ["/auth-test"
-    {:get  {:handler (partial health/auth-test-post opts)
-            :middleware [(partial auth/wrap-authenticate-user opts)]}}]
+    {:get {:handler health/check}}]
    ["/session"
     ["/refresh"
      {:post {:handler (partial auth-handlers/refresh-session! opts)}}]

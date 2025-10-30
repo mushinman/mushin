@@ -169,7 +169,7 @@
 
 (defn create-resource-for-gif!
   [^InputStream gif-stream resource-map]
-  (let [gif (gif/get-gif-from-stream gif-stream) ;; TODO catch exceptions and rethrow.
+  (let [gif (gif/get-gif-from-stream gif-stream)
         resource-name (str (loop [i 0
                                   md (digest/create-sha256-digest)
                                   scenes (:scenes gif)]
@@ -226,42 +226,6 @@
       :else
       (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
 
-;; (defn create-captioned-img-resource
-;;   [^InputStream image-stream mime-type xtdb-node]
-;;   (let [image-iis (ImageIO/createImageInputStream image-stream)
-;;         img (ImageIO/read image-iis)
-;;         _ (when-not img
-;;             ;; For some reason, the above overload of imageio.read() closes the input stream...
-;;             ;; unless an error occurred, in which case img is null.
-;;             (.close image-iis)
-;;             (throw (ex-info "Could not create image from image-stream" {:mime-type mime-type})))
-;;         resource-name (let [checksum (img/checksum-image img)]
-;;                         (if-let [resource (resources/get-resource xtdb-node checksum)]
-;;                           resource
-;;                           checksum))
-;;         output-file-path (files/create-temp-file "" "")]
-;;     (try
-;;       (with-open [temp-output-file (io/output-stream (str output-file-path))
-;;                   image-ios (ImageIO/createImageOutputStream temp-output-file)]
-;;         (ImageIO/write img (mime/mime-types mime-type) image-ios))
-;;       (resources/create-resource-from-file! xtdb-node output-file-path resource-name mime-type)
-
-;;       ;; We need to create a resource for the image with the caption.
-;;       ;; We render with a reference to the temporary file since it's
-;;       ;; easier to set up than rendering with the image's final location.
-;;       (let [img-width (.getWidth img)
-;;             img-height (.getHeight img)
-;;             captioned-img (svg/render-document (svg/make-meme-svg img-width img-height (files/path->uri output-file-path) "Hello world" 150.0) img-width (+ img-height 150))
-;;             resource-name (let [checksum (img/checksum-image captioned-img)]
-;;                             (if-let [resource (resources/get-resource xtdb-node checksum)]
-;;                               resource
-;;                               checksum))
-;;             ;; TODO i have to figure out how to build the URI to the resource....
-;;             ])
-;;       (catch Exception ex
-;;         (throw ex))
-;;       (finally
-;;         (files/delete-if-exists output-file-path)))))
 
 (defn- create-resource-from-gif
   [^InputStream image-stream mime-type]
