@@ -2,8 +2,10 @@
   (:require [clj-uuid :as uuid]
             [org.mushin.db.util :as db]
             [org.mushin.utils :refer [contains-one-of? contains-key?] :as util]
+            [java-time.api :as time]
             [clojure.set :as set]
-            [xtdb.api :as xt]))
+            [xtdb.api :as xt]
+            [org.mushin.db.timestamps :as timestamps]))
 
 
 (def authorization-effect-schema
@@ -54,23 +56,25 @@
 (def actor-role-schema
   {:mushin.db/actor-roles
    [:map
-   [:xt/id          :uuid]
-   [:role-id        :uuid]
-   [:actor-id       :uuid]]})
+    [:xt/id          :uuid]
+    [:role-id        :uuid]
+    [:actor-id       :uuid]
+    timestamps/created-at]})
 
 (defn actor-role-doc
   [role-id actor-id]
   {:xt/id (uuid/v7)
    :role-id role-id
-   :actor-id actor-id})
+   :actor-id actor-id
+   :created-at (time/zoned-date-time)})
 
 (defn insert-actor-role-tx
   [doc]
-  (db/insert-unless-exists-tx :mushin.db/actor-roles doc :role-id :actor-id))
+  (db/upsert-tx :mushin.db/actor-roles doc :role-id :actor-id))
 
 (defn insert-role-tx
   [doc]
-  (db/insert-unless-exists-tx :mushin.db/roles doc :name))
+  (db/upsert-tx :mushin.db/roles doc :name))
 
 (defn role-doc
   "Create a role document. Will allocate a new `xt/id`.

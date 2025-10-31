@@ -5,6 +5,7 @@
   (:require [clojure.string :as str]
             [malli.core :as malli]
             [clj-uuid :as uuid]
+            [honey.sql.helpers :as h]
             [honey.sql :as sql]
             [xtdb.api :as xt]
             [org.mushin.utils :refer [concat-kw]])
@@ -149,6 +150,31 @@
           []
           local-tx))
 
+(defn upsert-tx
+  "Create a transaction for upserting a document into a table.
+
+  # Arguments
+   - `table`: The name of the table to insert into.
+   - `doc`: The document to submit.
+   - `columns`: A vector of columns used to check if the document already exists.
+
+  # Return value
+  A vector of XTDB transactions."
+  [table doc & columns]
+  ;; This is kinda ugly but so far as I know this is only way to do this.
+  [[:sql (-> (h/delete-from table)
+             (h/where
+              [:exists
+               [:raw (-> [:xtql (xt/template
+                                 (-> (from ~table [~(select-keys doc columns)])
+                                     (limit 1)))]
+                         sql/format
+                         first)]])
+             (sql/format {:inline true})
+             first)]
+   [:put-docs table doc]])
+
+
 (defn insert-unless-exists-tx
   "Create a transaction for inserting document into a table unless that table already contains a duplicate document.
   When transactioned will throw a `xtdb.error.Conflict` if the check fails.
@@ -168,6 +194,7 @@
                               (limit 1))) ]
                   sql/format
                   first) ")")]
+
    [:put-docs table doc]])
 
 (defn submit-tx [node local-tx]

@@ -6,7 +6,7 @@
 (defn check
   [_]
   (ok
-   {:time     (time/zoned-date-time (time/instant) "UTC")
+   {:time (time/zoned-date-time (time/instant) "UTC")
     :up-since (sys/process-start-time)
     :threads (sys/thread-count)
     :memory (sys/memory-usage)

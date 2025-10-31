@@ -5,7 +5,8 @@
             [org.mushin.db.authorization :as authz]
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
-            [malli.experimental.time :as mallt]))
+            [malli.experimental.time :as mallt]
+            [org.mushin.db.util :as db]))
 
 (def ^:private nickname-regex "Regular that describes a valid nickname" #"\w+")
 
@@ -93,6 +94,13 @@
               :last-logged-in-at now}
              authz/default-object-doc)
       email (assoc :email email))))
+
+(defn insert-user-tx
+  [doc]
+  (db/insert-unless-exists-tx
+   :mushin.db/users
+   doc
+   :nickname))
 
 (defn check-user-can-view-user
   "Check if the viewer can view the viewee.

@@ -32,7 +32,16 @@
       (is (= (db-users/check-user-can-view-user node user1-id user2-id) :blocked)
           "Viewer should not be able to view the viewee"))))
 
-(deftest double-block-fails?
+(deftest user-nickname-duplicate-fails?
+  (with-open [test-node (test-db/start-xtdb!)]
+    (let [{:keys [node]} test-node
+          user1 (db-users/create-user "ichijo" "")]
+      (xt/execute-tx node (db-users/insert-user-tx user1))
+      (is (thrown? Conflict (xt/execute-tx node (db-users/insert-user-tx user1)))
+          "Duplicate usernames should result in an exception."))))
+
+
+(deftest block-overrides
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node
           user1 (db-users/create-user "ichijo" "")
@@ -42,7 +51,10 @@
       (xt/execute-tx node (into [[:put-docs :mushin.db/users user1]
                                  [:put-docs :mushin.db/users user2]]
                                 (db-rel/insert-relation-tx (db-rel/relationship-doc user2-id user1-id :block))))
-      (is (thrown? Conflict (xt/execute-tx node (db-rel/insert-relation-tx (db-rel/relationship-doc user2-id user1-id :block))))
-          "Blocker should not be able to block blockee twice."))))
-
-
+      (xt/execute-tx node (db-rel/insert-relation-tx (db-rel/relationship-doc user2-id user1-id :block)))
+      (is (= (count (xt/q node (xt/template (-> (from :mushin.db/relationships [{:source ~user2-id
+                                                                                 :target ~user1-id
+                                                                                 :type :block}])
+                                                (limit 1)))))
+             1)
+          "A block between two users should override a previous block."))))
