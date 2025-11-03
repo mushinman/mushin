@@ -14,6 +14,11 @@
    [org.mushin.web.handler]
    [org.mushin.xtdb]
 
+   ;; Including anything that integrant loads (it can't do it on its own).
+   [org.mushin.resources]
+   [org.mushin.web.sign]
+   [org.mushin.db.tasks]
+
     ;; Routes
    [org.mushin.web.routes.api])
   (:gen-class))

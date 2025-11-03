@@ -1,5 +1,5 @@
 (ns org.mushin.db.relationship-test
-(:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [org.mushin.test-support.db :as test-db]
             [org.mushin.db.users :as db-users]
             [org.mushin.db.util :as db]

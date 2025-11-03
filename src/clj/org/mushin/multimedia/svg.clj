@@ -3,8 +3,7 @@
             [org.mushin.multimedia.buffered-image-transcoder :as bit]
             [clojure.walk :as walk]
             [clojure.string :as str]
-            [org.mushin.files :as files]
-            [org.mushin.multimedia.svg :as svg])
+            [org.mushin.files :as files])
   (:import [io.sf.carte.echosvg.transcoder TranscoderInput SVGAbstractTranscoder]
            [io.sf.carte.echosvg.anim.dom SVGDOMImplementation]
            [io.sf.carte.echosvg.dom GenericAttr]
@@ -367,7 +366,7 @@
   "
   ^SVGDocument
   [dsl-map]
-  (hiccough->svg! (svg/create-doc) dsl-map))
+  (hiccough->svg! (create-doc) dsl-map))
 
 (defn write-svgdoc-to-file!
   [^SVGDocument doc file]

@@ -4,10 +4,8 @@
            :prod :prod}
  
  :metrics/prometheus
- {} 
- 
- 
- 
+ {}
+
  :cache/redis
  {:ttl  3600
   :conn {:pool {}
@@ -93,5 +91,4 @@
   :storage
   ;; persistent object store under data/xtdb/objects
   [:local
-   {:path "data/xtdb/objects"}]}
- }
+   {:path "data/xtdb/objects"}]}}

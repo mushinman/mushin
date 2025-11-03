@@ -25,7 +25,7 @@
              (->
               (cond
                                         ;(utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
-                (utils/icase-comp auth-type "Basic") (check-basic-auth! auth-arg xtdb-node)
+                (utils/icase-comp auth-type "Basic") (check-basic-auth! xtdb-node auth-arg)
                 :else (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
               (merge req)))))
         (handler))))

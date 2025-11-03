@@ -46,6 +46,7 @@
     [:rules            [:vec authorization-effect-schema]]
     [:perms     [:set :keyword]]]})
 
+;; TODO Convert this to its own table since this is a one-to-money relationship.
 (def default-object-doc
   "An empty object document, conforming to `authorization-object-schema`."
   {:tags #{}})

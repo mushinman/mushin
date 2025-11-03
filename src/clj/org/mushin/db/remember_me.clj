@@ -9,11 +9,15 @@
             [org.mushin.codecs :as codecs]))
 
 (def purge-invalid-tokens-query
-  [:sql (first (sql/format {:erase-from [:mushin.db/remember-me]
-                            :where [:> [:+ :created-at :valid-for] [:now]]}))])
+  "XTDB transaction part to purge all invalid tokens."
+  [:sql (-> {:erase-from [:mushin.db/remember-me]
+             :where [:> [:+ :created-at :valid-for] [:now]]}
+            sql/format
+            first)])
 
 
 (def forget-everybody
+  "XTDB transaction part to purge all tokens."
   [:sql (first (sql/format {:erase-from [:mushin.db/remember-me]}))])
 
 (def remember-me
@@ -65,10 +69,14 @@
 
 (defn recall-user
   [xtdb-node selector validator]
-  (when-let [token (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/remember-me [created-at valid-for user hashed-validator xt/id {:selector ~selector}])
-                                                           (where (< ~(time/zoned-date-time)
-                                                                     (+ created-at valid-for)))
-                                                           (limit 1)
-                                                           (return hashed-validator user xt/id)))))]
+  (when-let [token
+             (first
+              (xt/q
+               xtdb-node
+               (xt/template (-> (from :mushin.db/remember-me [created-at valid-for user hashed-validator xt/id {:selector ~selector}])
+                                (where (< ~(time/zoned-date-time)
+                                          (+ created-at valid-for)))
+                                (limit 1)
+                                (return hashed-validator user xt/id)))))]
     (when (digest/eq (codecs/b64u->bytes (:hashed-validator token)) (digest/sha-256-bytes (codecs/b64u->bytes validator)))
       (dissoc token :hashed-validator))))

@@ -6,6 +6,7 @@
             [org.mushin.db.remember-me :as remember-me]
             [lambdaisland.uri :as uri]
             [buddy.sign.jwt :as jwt]
+            [org.mushin.passwords :as passw]
             [org.mushin.digest :as digest]
             [org.mushin.codecs :as codecs]
             [org.mushin.db.util :as db]
@@ -74,7 +75,7 @@
   [{:keys [xtdb-node mushin/jwks]}
    {{{:keys [username password state redirect-uri code-method code-challenge]} :body} :parameters}]
   ;; TODO verify the redirect_uri
-  (when-not (auth/check-nickname-password xtdb-node username password)
+  (when-not (passw/nickname-and-password-are-valid? xtdb-node username password)
     (auth/failed-auth! {:error :wrong-nickname-or-password :message "the provided nickname or password is incorrect"}))
   (log/info "Issued sign in token" {:event :created-sign-in-token :user username})
   (found (-> (uri/uri redirect-uri)

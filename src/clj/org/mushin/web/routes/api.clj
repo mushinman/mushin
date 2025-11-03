@@ -14,7 +14,8 @@
    [reitit.ring.middleware.muuntaja :as muuntaja]
    [reitit.ring.middleware.parameters :as parameters]
    [org.mushin.web.controllers.oauth :as oauth]
-   [org.mushin.web.controllers.accounts :as accounts]
+   [org.mushin.web.controllers.users :as users]
+   [org.mushin.web.controllers.i :as self]
    [ring.logger :as ring-logger]
    [org.mushin.web.middleware.tx-func :as tx]
    [org.mushin.web.controllers.statuses :as statuses]
@@ -71,44 +72,61 @@
      {:post {:handler (partial oauth/create-code-post! opts)
              :parameters {:body oauth/create-code-post-body}
              :middleware [state/wrap-state]}}]]
-   ["/health"
-    {:get {:handler health/check}}]
-   ["/session"
-    ["/refresh"
-     {:post {:handler (partial auth-handlers/refresh-session! opts)}}]
-    ["/login"
-     {:post {:handler (partial auth-handlers/login! opts)}}]
-    ["/logout"
-     {:post {:handler (partial auth-handlers/logout! opts)}}]]
 
-   ["/create-account"
-    {:post {:handler (partial accounts/create-account-post! opts)
-            :parameters {:body accounts/create-account-body}}}]
-   ["/statuses/timeline/:nickname"
-    {:get  {:handler (partial statuses/get-timeline opts)
-            :middleware [(partial auth/wrap-authenticate-user opts)]
-            :parameters {:query statuses/get-timeline-query}}}]
+   ["/v1"
+
+    ["/are-you-ok"
+     {:get {:handler health/check}}] ; TODO no-cache response header
+
+    ["/authn"
+     ["/recall"
+      {:post {:handler (partial auth-handlers/refresh-session! opts)}}]
+     ["/let-me-in"
+      {:post {:handler (partial auth-handlers/login! opts)}}]
+     ["/bye"
+      {:post {:handler (partial auth-handlers/logout! opts)}}]]
+
+    ["/i"
+     {:middleware [(partial auth/wrap-authenticate-user opts)]}
+     ["/who-am-i"
+      {:get {:handler (partial self/get-user opts)}}]
+     ["/am-a"
+      {:get {:handler (partial self/get-roles)}}]
+     ["/forget-me"
+      {:delete {:handler (partial self/delete-self! opts)
+                :parameters {:body self/inter-body-schema}}}]]
+
+    ["/users"
+     ["/create"
+      {:post {:handler (partial users/create-user! opts)
+              :parameters {:body users/create-user-body}}}]]
+
+
+    ["/statuses/timeline/:nickname"
+     {:get  {:handler (partial statuses/get-timeline opts)
+             :middleware [(partial auth/wrap-authenticate-user opts)]
+             :parameters {:query statuses/get-timeline-query}}}]
                                         ;["/create-picture" {:handler (partial statuses/create-picture-post! opts)
                                         ;                    :middleware [(partial auth/wrap-authenticate-user opts)]
                                         ;                    :parameters {:body statuses/create-picture-post-body}}]
 
-   ["/create-status-post" {:handler (partial statuses/create-status-post! opts)
-                           :middleware [(partial auth/wrap-authenticate-user opts)]
-                           :parameters {:body statuses/create-status-body}}]
+    ["/create-status-post" {:handler (partial statuses/create-status-post! opts)
+                            :middleware [(partial auth/wrap-authenticate-user opts)]
+                            :parameters {:body statuses/create-status-body}}]
 
-   ["/statuses/s/:id" {:get  {:handler (partial statuses/get-status opts)
-                              :middleware [(partial auth/wrap-authenticate-user opts)]
-                              :parameters {:query statuses/get-status-query
-                                           :path statuses/status-query}}
-                       :delete {:handler (partial statuses/delete-status! opts)
-                                :middleware [(partial auth/wrap-authenticate-user opts)]
-                                :parameters {:query statuses/get-status-query
-                                             :path statuses/status-query}}}]])
+    ["/statuses/s/:id" {:get  {:handler (partial statuses/get-status opts)
+                               :middleware [(partial auth/wrap-authenticate-user opts)]
+                               :parameters {:query statuses/get-status-query
+                                            :path statuses/status-query}}
+                        :delete {:handler (partial statuses/delete-status! opts)
+                                 :middleware [(partial auth/wrap-authenticate-user opts)]
+                                 :parameters {:query statuses/get-status-query
+                                              :path statuses/status-query}}}]]])
 
 (derive :reitit.routes/api :reitit/routes)
 
 (defmethod ig/init-key :reitit.routes/api
   [_ {:keys [base-path]
-      :or   {base-path ""}
+      :or   {base-path "api"}
       :as   opts}]
   (fn [] [base-path route-data (api-routes opts)]))

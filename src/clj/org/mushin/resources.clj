@@ -9,9 +9,10 @@
 (defmethod ig/init-key :org.mushin.resources/provider [_ location]
   (log/info "Initializing the resource store provider...")
   (cond
-    (contains? location :local) (let [{:keys [path base-url] :as config} (:local location)]
-                                  (log/info "Creating filesystem resource provider with config:" config)
-                                  (fsm/->FileSystemResourceMap (files/path path) (uri base-url)))
+    (contains? location :local)
+    (let [{:keys [path base-url] :as config} (:local location)]
+      (log/info "Creating filesystem resource provider with config:" config)
+      (fsm/->FileSystemResourceMap (files/path path) (uri base-url)))
 
     :else (throw (ex-info "Unrecognized resource store provider settings" {:settings location}))))
 

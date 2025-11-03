@@ -5,14 +5,27 @@
             [org.mushin.db.authorization :as authz]
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
-            [malli.experimental.time :as mallt]
-            [org.mushin.db.util :as db]))
+            [org.mushin.db.statuses :as statuses]
+            [malli.experimental.time :as mallt]))
 
-(def ^:private nickname-regex "Regular that describes a valid nickname" #"\w+")
+(def nickname-regex "Regular that describes a valid nickname" #"\w+")
 
 (def nickname-schema
   "Schema for the nickname"
   [:nickname [:and [:and [:string {:min 1 :max 32}] [:re nickname-regex]]]])
+
+(def ^:private user-states-schema
+  "Schema for user states.
+  | Key          | State                    | Meaning                                |
+  |:-------------|:-------------------------|:---------------------------------------|
+  | `:ok`        | None                     | Account activated and in good standing |
+  | `:timeout`   | Time the timout expires. | Account is in timeout                  |
+  | `:tombstone` | None                     | Account is dead/deactivated.           |
+  "
+  [:multi {:dispatch :type}
+   [:ok [:map [:type :keyword]]]
+   [:timeout [:map [:type :keyword] [:timeout (mallt/-zoned-date-time-schema)]]]  ; TODO implement timeout
+   [:tombstone [:map [:type :keyword]]]])
 
 (def user-schema
   "Schema for users.
@@ -41,6 +54,7 @@
     [:nickname                :string]
     [:password-hash           :string]
     [:bio                     :string]
+    [:state                   user-states-schema]
     [:privacy-level           [:enum :open :open-instance :locked]]
     [:local?                  :boolean]
     [:joined-at               (mallt/-zoned-date-time-schema)]
@@ -86,6 +100,7 @@
              {:xt/id (uuid/v7)
               :nickname nickname
               :local? true
+              :state {:type :ok}
               :log-counter 0
               :bio ""
               :password-hash (crypt/hash-password password)
@@ -97,10 +112,33 @@
 
 (defn insert-user-tx
   [doc]
-  (db/insert-unless-exists-tx
+  (db-util/insert-unless-exists-tx
    :mushin.db/users
    doc
    :nickname))
+
+(defn delete-user-tx
+  "Create a transaction for deleting a user from the database.
+
+  # Arguments
+   - `user-id`: ID of the user to delete.
+
+  # Return value
+  Returns a transaction to remove the user from the following tables:
+  `:mushin.db/actor-roles`,  `:mushin.db/relationships`, and erects a
+  tombstone for `:mushin.db/users` and `:mushin.db/statuses`."
+  [user-id]
+  [[:patch-docs :mushin.db/users {:xt/id user-id
+                                  :state {:type :tombstone}}]
+   (statuses/inter-users-statuses-tx user-id)
+   (db-util/delete-where
+    :mushin.db/actor-roles
+    (xt/template (from :mushin.db/actor-roles [{:actor-id ~user-id}])))
+   (db-util/delete-where
+    :mushin.db/relationships
+    (xt/template (-> (from :mushin.db/relationships [source target])
+                     (where (or (= source ~user-id) (= target ~user-id)))
+                     (limit 1))))])
 
 (defn check-user-can-view-user
   "Check if the viewer can view the viewee.
