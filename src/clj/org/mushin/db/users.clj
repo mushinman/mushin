@@ -75,7 +75,7 @@
 
 (defn get-user-by-id
   ([xtdb-node id] (db-util/lookup-by-id xtdb-node :mushin.db/users id))
-  ([xtdb-node cols id] (db-util/lookup-first xtdb-node :mushin.db/users cols {:xt/id id})))
+  ([xtdb-node id cols] (db-util/lookup-first xtdb-node :mushin.db/users cols {:xt/id id})))
 
 (defn check-user-id-exists? [xtdb-node user-id]
   (db-util/record-exists? xtdb-node :mushin.db/users user-id))
@@ -160,28 +160,29 @@
    (xt/q
     xtdb-node
     (xt/template
-     (-> (unify
-          (from :mushin.db/users [{:xt/id ~viewer-id} {:local? viewer-local?}])
-          (from :mushin.db/users [{:xt/id ~viewee-id} {:privacy-level viewee-privacy-level}]))
-         (with
-          {:blocked? (exists? (from :mushin.db/relationships [{:type :block :source ~viewee-id :target ~viewer-id}]))
-           :followed? (exists? (from :mushin.db/relationships [{:type :follow :source ~viewer-id :target ~viewee-id}]))})
-         ;; As of XTDB 2.0.0 we need this second (with) expression because if-some and let don't work
-         ;; (see https://github.com/xtdb/xtdb/issues/3179), and you can't use symbols defined in a (with)
-         ;; inside the same expression.
-         ;; TODO change to a if-some when the above bug is fixed.
-         (with
-          {:reject-reason
-           (cond
-             blocked? :blocked
-             (or (and (= viewee-privacy-level :locked) (not followed?))
-                 (and (= viewee-privacy-level :open-instance) (not viewer-local?)))
-             :locked
-             ;; The "true" isn't required but it shuts up lsp.
-             true false)})
-         (return {:result
-                  (if reject-reason
-                    reject-reason
-                    :allowed)}))))
+     (->
+      (unify
+       (from :mushin.db/users [{:xt/id ~viewer-id} {:local? viewer-local?}])
+       (from :mushin.db/users [{:xt/id ~viewee-id} {:privacy-level viewee-privacy-level}]))
+      (with
+       {:blocked? (exists? (from :mushin.db/relationships [{:type :block :source ~viewee-id :target ~viewer-id}]))
+        :followed? (exists? (from :mushin.db/relationships [{:type :follow :source ~viewer-id :target ~viewee-id}]))})
+      ;; As of XTDB 2.0.0 we need this second (with) expression because if-some and let don't work
+      ;; (see https://github.com/xtdb/xtdb/issues/3179), and you can't use symbols defined in a (with)
+      ;; inside the same expression.
+      ;; TODO change to a if-some when the above bug is fixed.
+      (with
+       {:reject-reason
+        (cond
+          blocked? :blocked
+          (or (and (= viewee-privacy-level :locked) (not followed?))
+              (and (= viewee-privacy-level :open-instance) (not viewer-local?)))
+          :locked
+          ;; The "true" isn't required but it shuts up lsp.
+          true false)})
+      (return {:result
+               (if reject-reason
+                 reject-reason
+                 :allowed)}))))
    first
    :result))

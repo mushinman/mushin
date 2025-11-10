@@ -1,6 +1,7 @@
 (ns org.mushin.web.middleware.auth
   (:require
    [ring.util.http-response :refer [bad-request!]]
+   [clojure.tools.logging :as log]
    [org.mushin.web.auth-utils :refer [failed-auth! invalid-auth! check-basic-auth!]]
    [org.mushin.utils :as utils]
    [clojure.string :as cstr]))
@@ -15,17 +16,21 @@
 
 (defn wrap-authenticate-user [{:keys [xtdb-node]} handler]
   (fn [{{:keys [user-id]} :session :keys [headers] :as req}]
-    (-> (or
-         (when user-id
-           req)
-         (if (nil? (get headers "authorization"))
-           (failed-auth! {:error "missing authorization"
-                          :message "please authenticate using one of our supported schemas"})
-           (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")]
-             (->
-              (cond
-                                        ;(utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
-                (utils/icase-comp auth-type "Basic") (check-basic-auth! xtdb-node auth-arg)
-                :else (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
-              (merge req)))))
-        (handler))))
+    (handler
+     (cond
+       user-id req
+
+       (nil? (get headers "authorization"))
+       (failed-auth! {:error "missing authorization"
+                      :message "please authenticate using one of our supported schemas"})
+
+       :else
+       (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")]
+         (assoc-in req [:session :user-id]
+                   (cond
+                     ;;(utils/icase-comp auth-type "Bearer") (check-bearer auth-arg xtdb-node)
+                     (utils/icase-comp auth-type "Basic")
+                     (check-basic-auth! xtdb-node auth-arg)
+
+                     :else
+                     (bad-request! {:error :invalid-request :message "Malformed authorization header"}))))))))

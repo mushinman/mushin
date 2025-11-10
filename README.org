@@ -22,3 +22,8 @@
 - [ ] oauth
   - [ ] PKCE
   - [ ] Implement state param
+
+** Notes
+According to =@jarohen= on XTDB's discord it's better to have =xt/ids= for related rows have the same prefix for better locality. This means not using UUIDv7s
+
+For performance we should pool JDBC connections.

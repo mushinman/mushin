@@ -37,6 +37,11 @@
                                   [:text :string]]]]
     authz/authorization-object-schema]})
 
+(defn get-statuses-by-user
+  [xtdb-node user-id]
+  (xt/q xtdb-node (xt/template
+                   (from :mushin.db/statuses [* {:creator ~user-id}]))))
+
 (defn inter-users-statuses-tx
   "Create a XTDB transaction part that replaces every status by a particular user with a tombstone."
   [user-id]

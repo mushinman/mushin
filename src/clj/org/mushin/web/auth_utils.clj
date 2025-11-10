@@ -1,6 +1,7 @@
 (ns org.mushin.web.auth-utils
   (:require [ring.util.http-response :refer [unauthorized! bad-request!]]
             [ring.util.codec :as ring-codec]
+            [clojure.tools.logging :as log]
             [clojure.string :as cstr]
             [org.mushin.passwords :as passw]))
 
@@ -44,9 +45,9 @@
         [nickname password-attempt :as creds] (cstr/split b64-creds #":")]
 
     (when (some nil? creds)
-      (invalid-auth! {:error "invalid_basic" :message "The provided basic authorization header was not in the standard user:password format"}))
+      (invalid-auth! {:error :invalid-basic-auth :message "The provided basic authorization header was not in the standard user:password format"}))
     (if-let [id (passw/nickname-and-password-are-valid? xtdb-node nickname password-attempt)]
-      {:user-id id}
+      id
       (failed-auth! {:error :wrong-nickname-or-password :message "The provided nickname or password is incorrect"}))))
 
 (defn user-has-permissions-for?
@@ -61,3 +62,9 @@
   ;; TODO this is definately going to need to be expanded.
   (or (user-has-permissions-for? subject-user-id object-user-id) (unauthorized! {:error :insufficient-permission
                                                                                  :message "User does not have permissions for that action"})))
+(defn user-blocked
+  "Response body for authorization failure from being blocked."
+  [target-id]
+  {:error :blocked-by-user
+   :message "You have been blocked by that user"
+   :blocked-by target-id})

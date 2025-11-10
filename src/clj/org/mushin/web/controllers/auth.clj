@@ -34,7 +34,7 @@
 
   (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")
         user-id (if (utils/icase-comp auth-type "Basic")
-                  (:user-id (check-basic-auth! xtdb-node auth-arg))
+                  (check-basic-auth! xtdb-node auth-arg)
                   (bad-request! {:error "invalid_request" :message "Malformed authorization header"}))
         {:keys [doc selector validator valid-for]} (remember-me/remember-user user-id)]
 

@@ -4,6 +4,7 @@
             [malli.core :as malli]
             [clj-uuid :as uuid]
             [java-time.api :as jt]
+            [org.mushin.db.users :as users]
             [org.mushin.db.util :as db]))
 
 
@@ -71,22 +72,14 @@
       [:map
        [:state follow-states-schema]]]]]})
 
-(defn follow-doc
-  [follower followee]
-  {:xt/id [:follow follower followee]
-   :source follower
-   :target followee
-   :type :follow
-   :created-at (jt/zoned-date-time)
-   :state :follow-pending})
-
 (defn relationship-doc
-  [source target type]
-  {:xt/id (uuid/v7)
-   :source source
-   :target target
-   :created-at (jt/zoned-date-time)
-   :type type})
+  [source target type & state]
+  (cond-> {:xt/id (uuid/v7)
+           :source source
+           :target target
+           :created-at (jt/zoned-date-time)
+           :type type}
+    state (assoc :state state)))
 
 (defn insert-relation-tx
   "Create the transaction for inserting a relationship.
@@ -101,3 +94,96 @@
    :mushin.db/relationships
    doc
    :type :source :target))
+
+(defn delete-realtion-tx
+  "Create a XTDB transaction that deletes a relationshp."
+  [source target type]
+  (db/delete-doc
+   :mushin.db/relationships
+   {:source source :target target :type type}
+   :source :target :type))
+
+(defn get-relationships
+  "Get a collection of relationships with other users.
+
+  # Arguments
+   - `xtdb-node`: Database
+   - `type`: The type of relationship to get
+   - `source-id`: The source user
+
+  # Optional arguments
+   - `n`: How many rows to return (default 40)
+   - `offset-by`: Offset into the ordering (default 0)
+   - `order-column`: Which column to order by. Must be `:name` or `:created-at`
+   - `reverse`: If true, reverses the ordering (default is descending)"
+  [xtdb-node type source-id & {:keys [n offset-by order-column reverse]
+                               :or {n 40
+                                    offset-by 0}}]
+  (xt/q xtdb-node [(xt/template
+                    (fn [rel-source rel-type]
+                      (-> (unify
+                           (from :mushin.db/relationships [{:source rel-source :target rel-target :type rel-type :created-at relation-started}])
+                           (from :mushin.db/users [nickname {:xt/id rel-target}]))
+                          (order-by {:val ~(case order-column
+                                             :name 'nickname
+                                             :created-at 'relation-started)
+                                     :dir ~(if reverse :asc :desc)
+                                     :nulls :last})
+                          (offset ~offset-by)
+                          (limit ~n)
+                          (return rel-target nickname relation-started))))
+                   source-id type]))
+
+(defn get-relationships-with
+  [xtdb-node source-id target-id & {:keys [n offset-by order-column reverse]
+                                    :or {n 40
+                                         offset-by 0}}]
+  (xt/q xtdb-node [(xt/template
+                    (fn [rel-source rel-target]
+                      (-> (unify
+                           (from :mushin.db/relationships [{:source rel-source :target rel-target :created-at related-at}])
+                           (from :mushin.db/users [nickname xt/id {:xt/id rel-target}]))
+                          (order-by {:val ~(case order-column
+                                             :name 'nickname
+                                             :created-at 'related-at)
+                                     :dir ~(if reverse :asc :desc)
+                                     :nulls :last})
+                          (offset ~offset-by)
+                          (limit ~n))))
+                   source-id target-id]))
+
+(defn get-relationship-with
+  [xtdb-node type source-id target-id]
+  (first
+   (xt/q xtdb-node [(xt/template
+                     (fn [rel-type rel-source rel-target]
+                       (-> (from :mushin.db/relationships [{:source rel-source :target rel-target :type rel-type}])
+                           (limit 1))))
+                    type source-id target-id])))
+
+(defn has-relationship?
+  "True if the source has a `type` relationhip with the target, otherwise false."
+  [xtdb-node type source-id target-id]
+  (boolean (get-relationship-with xtdb-node type source-id target-id)))
+
+
+(defn can-follow-user?
+  "Attempts to create a following relationship between a source user and a target user.
+
+  Return value
+   - `:can-request-follow`: The source can request to follow the target
+   - `:can-follow`: The source can follow the target
+   - `:following`: The source is following the target
+   - `false`: The source is blocked by the target"
+  [xtdb-node source-id target-id]
+  (let [perm (users/check-user-can-view-user xtdb-node source-id target-id)]
+    (if (or (= perm :allowed)
+            (= perm :locked))
+      (let [follows? (:state (get-relationship-with xtdb-node :follow source-id target-id))]
+        (if (or (= :follow-pending follows?)
+                (= :follow-accept follows?))
+          follows?
+          (if (= perm :allowed)
+            :can-follow
+            :can-request-follow)))
+      false)))

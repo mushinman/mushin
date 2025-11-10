@@ -2,17 +2,33 @@
 ;; https://github.com/jacobobryant/biff/blob/d71b8c2422978e070838214d594b716bbd30e11d/libs/xtdb2/src/com/biffweb/xtdb.clj
 
 (ns org.mushin.db.util
-  (:require [clojure.string :as str]
-            [malli.core :as malli]
+  (:require [malli.core :as malli]
             [clj-uuid :as uuid]
             [honey.sql.helpers :as h]
             [honey.sql :as sql]
-            [xtdb.api :as xt]
-            [org.mushin.utils :refer [concat-kw]])
+            [xtdb.api :as xt])
   (:import [xtdb.api Xtdb]))
 
-(defn- fail [& args]
-  (throw (ex-info "Unsupported operation." {})))
+(defn query-bind
+  "Create a BindSpec with optional for-valid-time and for-system-time."
+  [bindings valid-for system-valid-for]
+  (cond-> {:bind bindings}
+    valid-for
+    (assoc :for-valid-time (let [[type date1 date2] valid-for]
+                             (case type
+                               :at (xt/template (at ~date1))
+                               :from (xt/template (from ~date1))
+                               :to (xt/template  (to ~date1))
+                               :in (xt/template  (in ~date1 ~date2))
+                               :all-time :all-time)))
+    system-valid-for
+    (assoc :for-system-time (let [[type date1 date2] system-valid-for]
+                              (case type
+                                :at (xt/template (at ~date1))
+                                :from (xt/template (from ~date1))
+                                :to (xt/template  (to ~date1))
+                                :in (xt/template (in ~date1 ~date2))
+                                :all-time :all-time)))))
 
 (def ^:private xtdb-node?
   [:fn #(instance? Xtdb %)])
@@ -99,6 +115,14 @@
                                   (limit 1)))))))
 
 (defn delete-where
+  "Create a transaction part for a deleting documents based off a XTQL query.
+
+  # Arguments
+   - `table`: The table to delete from
+   - `query`: An XTQL query that returns rows to delete
+
+  # Return value
+  A XTDB transaction vector."
   [table query]
   [:sql (-> (h/delete-from table)
             (h/where
@@ -108,6 +132,21 @@
                         first)]])
             (sql/format {:inline true})
             first)])
+
+(defn delete-doc
+  "Create a transaction part for deleting a document.
+
+  # Arguments
+   - `table`: The name of the table to delete from.
+   - `doc`: The document to delete.
+   - `columns`: A vector of columns used to determine if the row should be deleted.
+
+  # Return value
+  An XTDB transaction vector."
+  [table doc & columns]
+  (delete-where table (xt/template
+                       (-> (from ~table [~(select-keys doc columns)])
+                           (limit 1)))))
 
 (defn upsert-tx
   "Create a transaction for upserting a document into a table.
@@ -121,9 +160,7 @@
   A vector of XTDB transactions."
   [table doc & columns]
   ;; This is kinda ugly but so far as I know this is only way to do this.
-  [(delete-where table (xt/template
-                        (-> (from ~table [~(select-keys doc columns)])
-                            (limit 1))) )
+  [(delete-doc table doc columns)
    [:put-docs table doc]])
 
 

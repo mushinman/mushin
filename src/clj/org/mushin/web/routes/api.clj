@@ -74,7 +74,6 @@
              :middleware [state/wrap-state]}}]]
 
    ["/v1"
-
     ["/are-you-ok"
      {:get {:handler health/check}}] ; TODO no-cache response header
 
@@ -90,11 +89,46 @@
      {:middleware [(partial auth/wrap-authenticate-user opts)]}
      ["/who-am-i"
       {:get {:handler (partial self/get-user opts)}}]
-     ["/am-a"
-      {:get {:handler (partial self/get-roles)}}]
-     ["/forget-me"
+     ;; TODO authorization middleware that checks the arguments and denies based off
+     ["/delete-me"
       {:delete {:handler (partial self/delete-self! opts)
-                :parameters {:body self/inter-body-schema}}}]]
+                :parameters {:body self/delete-me-body-schema}}}]
+     ;; ["/statuses/:id"
+     ;;  {}
+     ;;  ["/redact"]
+     ;;  ["/like"]
+     ;;  ["/unlike"]
+     ;;  ["/favor"]
+     ;;  ["/unfavor"]]
+
+     ["/relationships"
+
+      ["/:id"
+       ["/follow"
+        {:get {:handler (partial self/follow-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/unfollow"
+        {:get {:handler (partial self/unfollow-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/mute"
+        {:get {:handler (partial self/mute-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/unmute"
+        {:get {:handler (partial self/unmute-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/block"
+        {:get {:handler (partial self/block-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/unblock"
+        {:get {:handler (partial self/unblock-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]]
+
+      ["/blocks"
+       {:get {:handler (partial self/get-blocked-accounts opts)
+              :parameters {:body (self/collection-query-schema)}}}]
+      ["/mutes"
+       {:get {:handler (partial self/get-muted-accounts opts)
+              :parameters {:body (self/collection-query-schema)}}}]]]
 
     ["/users"
      ["/create"
