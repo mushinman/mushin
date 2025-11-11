@@ -3,7 +3,7 @@
             [ring.util.codec :as ring-codec]
             [clojure.tools.logging :as log]
             [clojure.string :as cstr]
-            [org.mushin.passwords :as passw]))
+            [org.mushin.db.users :as users]))
 
 
 ;; TODO There will eventually be two realms at least: Admin Visible and User Visible
@@ -46,9 +46,10 @@
 
     (when (some nil? creds)
       (invalid-auth! {:error :invalid-basic-auth :message "The provided basic authorization header was not in the standard user:password format"}))
-    (if-let [id (passw/nickname-and-password-are-valid? xtdb-node nickname password-attempt)]
-      id
-      (failed-auth! {:error :wrong-nickname-or-password :message "The provided nickname or password is incorrect"}))))
+    (let [id (users/can-login? xtdb-node nickname password-attempt)]
+      (if (uuid? id)
+        id
+        (failed-auth! {:error id})))))
 
 (defn user-has-permissions-for?
   "Determine if the user `subject-user-id` has the permissions to perform actions on user `object-user-id`."

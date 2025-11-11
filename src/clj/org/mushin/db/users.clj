@@ -2,6 +2,7 @@
   (:require [xtdb.api :as xt]
             [org.mushin.db.util :as db-util]
             [clj-uuid :as uuid]
+            [buddy.hashers :as hashers]
             [org.mushin.db.authorization :as authz]
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
@@ -16,11 +17,11 @@
 
 (def ^:private user-states-schema
   "Schema for user states.
-  | Key          | State                    | Meaning                                |
-  |:-------------|:-------------------------|:---------------------------------------|
-  | `:ok`        | None                     | Account activated and in good standing |
-  | `:timeout`   | Time the timout expires. | Account is in timeout                  |
-  | `:tombstone` | None                     | Account is dead/deactivated.           |
+  | Key          | State                     | Meaning                                |
+  |:-------------|:--------------------------|:---------------------------------------|
+  | `:ok`        | None                      | Account activated and in good standing |
+  | `:timeout`   | Time the timeout expires. | Account is in timeout                  |
+  | `:tombstone` | None                      | Account is dead/deactivated.           |
   "
   [:multi {:dispatch :type}
    [:ok [:map [:type :keyword]]]
@@ -129,6 +130,7 @@
   tombstone for `:mushin.db/users` and `:mushin.db/statuses`."
   [user-id]
   [[:patch-docs :mushin.db/users {:xt/id user-id
+                                  :password-hash ""
                                   :state {:type :tombstone}}]
    (statuses/inter-users-statuses-tx user-id)
    (db-util/delete-where
@@ -186,3 +188,46 @@
                  :allowed)}))))
    first
    :result))
+
+
+(defn can-login?
+  "Check that a given password matches a given nickname.
+
+  # Arguments
+   - `xtdb-node`: Database.
+   - `nickname`: User nickname.
+   - `password`: The password for the `nickname`'s user account.
+
+  # Return value
+  The user's `:user-id` if a login is allowed,
+  or a reason code for login rejection. Could be: `:timeout`, `:dead-account`, or `:wrong-nickname-or-password`"
+  [xtdb-node nickname password]
+  (let [{{:keys [type] :as state} :state :keys [password-hash xt/id]}
+        (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [{:nickname ~nickname} state password-hash xt/id])
+                                                (limit 1)))))]
+    (cond
+      (not= type :ok)
+      (case type
+        :timeout :timeout
+        :tombstone :dead-account
+        (throw (ex-info "Invalid state for account" {:invalid-state :user :state state})))
+
+      (and password-hash (:valid (hashers/verify password password-hash)))
+      id
+
+      :else
+      :wrong-nickname-or-password)))
+
+(defn check-nickname-and-password
+  "Check that a given password matches a given nickname.
+  Uses the same username/password verification as `can-login?`.
+
+  # Arguments
+   - `xtdb-node`: Database.
+   - `nickname`: User nickname.
+   - `password`: The password for the `nickname`'s user account.
+
+  # Return value
+  True if the user can login, false if not."
+  [xtdb-node nickname password]
+  (uuid? (can-login? xtdb-node nickname password)))

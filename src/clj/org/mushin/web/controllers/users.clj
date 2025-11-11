@@ -1,6 +1,5 @@
 (ns org.mushin.web.controllers.users
-  (:require
-            [org.mushin.db.users :as db-users]
+  (:require [org.mushin.db.users :as db-users]
             [ring.util.http-response :refer [conflict! created ok]]
             [clojure.tools.logging :as log]
             [org.mushin.db.util :as db]))

@@ -4,13 +4,13 @@
             [malli.experimental.time :as mallt]
             [clojure.tools.logging :as log]
             [org.mushin.web.auth-utils :as auth]
-            [org.mushin.passwords :as passw]
             [org.mushin.db.likes :as likes]
             [xtdb.api :as xt]
             [org.mushin.db.util :as db]
             [org.mushin.db.timeline :as db-timeline]
             [org.mushin.db.users :as db-users]
-            [org.mushin.db.relationship :as rel]))
+            [org.mushin.db.relationship :as rel]
+            [org.mushin.db.users :as users]))
 
 (def any-timestamp
   "A schema for any date object that xtdb supports."
@@ -70,15 +70,15 @@
    {{:keys [user-id]} :session}]
   (db-authz/actor-roles xtdb-node user-id))
 
-                                        ; TODO move password from request body to basic auth.
 (defn delete-self!
   [{:keys [xtdb-node]}
    {{{:keys [password]} :body} :parameters {:keys [user-id]} :session
     :keys [mushin/async?]}]
+  ;; TODO also invalidate the session state for the deleted user.
   (log/info {:event :delete-me :user-id user-id})
   (let [nick (:nickname (db-users/get-user-by-id xtdb-node user-id))]
     (log/info {:delete-me-part2 "yup" :nick nick})
-    (when-not (passw/nickname-and-password-are-valid? xtdb-node nick password)
+    (when-not (users/check-nickname-and-password xtdb-node nick password)
       (unauthorized! {:error :invalid-password}))
     (if async?
       (do
@@ -89,7 +89,7 @@
         (no-content)))))
 
 (defn create-status
-                                        ; TODO
+  ;; TODO
   [{:keys [xtdb-node]}
    {{{:keys []} :body} :parameters
     {:keys [user-id]} :session
