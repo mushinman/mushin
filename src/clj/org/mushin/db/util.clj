@@ -9,6 +9,8 @@
             [xtdb.api :as xt])
   (:import [xtdb.api Xtdb]))
 
+
+
 (defn query-bind
   "Create a BindSpec with optional for-valid-time and for-system-time."
   [bindings valid-for system-valid-for]
@@ -143,10 +145,11 @@
 
   # Return value
   An XTDB transaction vector."
-  [table doc & columns]
+  [table doc columns]
   (delete-where table (xt/template
                        (-> (from ~table [~(select-keys doc columns)])
                            (limit 1)))))
+
 
 (defn upsert-tx
   "Create a transaction for upserting a document into a table.
@@ -158,10 +161,20 @@
 
   # Return value
   A vector of XTDB transactions."
-  [table doc & columns]
+  [table doc columns]
   ;; This is kinda ugly but so far as I know this is only way to do this.
   [(delete-doc table doc columns)
    [:put-docs table doc]])
+
+(defn assert-not-exists-tx
+  ""
+  [table where]
+  [:sql (str "ASSERT NOT EXISTS("
+             (-> [:xtql (xt/template
+                         (-> (from ~table [~where])
+                             (limit 1)))]
+                 sql/format
+                 first) ")")])
 
 
 (defn insert-unless-exists-tx
@@ -175,15 +188,9 @@
 
   # Return value
   A vector of XTDB transactions."
-  [table doc & columns]
+  [table doc columns]
   ;; This is kinda ugly but so far as I know this is only way to do this.
-  [[:sql (str "ASSERT NOT EXISTS("
-              (-> [:xtql (xt/template
-                          (-> (from ~table [~(select-keys doc columns)])
-                              (limit 1))) ]
-                  sql/format
-                  first) ")")]
-
+  [(assert-not-exists-tx table (select-keys doc columns))
    [:put-docs table doc]])
 
 (defn compile-op-dispatch [node op]
@@ -242,3 +249,44 @@
 
 (defn execute-tx [node local-tx]
   (xt/execute-tx node (compile-tx node local-tx)))
+
+(defn compose-txs
+  "Combine XTDB transaction vectors into a single transaction.
+
+  Each argument can be a single statement (e.g.
+  `[:put-docs :mushin.db/users {:xt/id (random-uuid)}]`) or a vector of statements
+  (e.g. [[:put-docs :mushin.db/users {:xt/id (random-uuid)}] [:sql 'DELETE FROM likes']]),
+  or nil."
+  [& txs]
+  (into []
+   (comp (map
+          (fn [tx]
+            (cond
+              (nil? tx) tx
+              (and (vector? tx) (vector? (first tx))) tx
+              (vector? tx) [tx]
+              :else nil)))
+         (remove nil?)
+         cat)
+   txs))
+
+(defn compose-and-run-txs!
+  "Combine XTDB transaction vectors  into a single transaction and execute.
+
+  # Arguments
+   - `con`: XTDB connection
+   - `async?`: If true then the transaction will run via `submit-tx`, else `execute-tx`.
+   - `txs`: Each argument can be a single statement (e.g.
+  `[:put-docs :mushin.db/users {:xt/id (random-uuid)}]`) or a vector of statements
+  (e.g. [[:put-docs :mushin.db/users {:xt/id (random-uuid)}] [:sql 'DELETE FROM likes']]),
+  or nil.
+
+  # Return value
+  See `submit-tx` and `execute-tx`."
+  [con async? txs]
+    (println "before" txs)
+  (let [txs (apply compose-txs txs)]
+    (println "after " txs)
+    (if async?
+      (submit-tx con txs)
+      (execute-tx con txs))))

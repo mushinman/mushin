@@ -103,37 +103,41 @@
 
      ["/relationships"
 
-      ["/:id"
-       ["/follow"
-        {:get {:handler (partial self/follow-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
-       ["/unfollow"
-        {:get {:handler (partial self/unfollow-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
-       ["/mute"
-        {:get {:handler (partial self/mute-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
-       ["/unmute"
-        {:get {:handler (partial self/unmute-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
-       ["/block"
-        {:get {:handler (partial self/block-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
-       ["/unblock"
-        {:get {:handler (partial self/unblock-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]]
-
       ["/blocks"
        {:get {:handler (partial self/get-blocked-accounts opts)
-              :parameters {:body (self/collection-query-schema)}}}]
+              :parameters {:query (self/collection-query-schema)}}}]
       ["/mutes"
        {:get {:handler (partial self/get-muted-accounts opts)
-              :parameters {:body (self/collection-query-schema)}}}]]]
+              :parameters {:query (self/collection-query-schema)}}}]
+
+      ["/:id"
+       ["/follow"
+        {:post {:handler (partial self/follow-user! opts)
+                :parameters {:path [:map [:id :uuid]]}}}]
+
+                                        ;["/follow-accept"
+                                        ; {:post {}}]
+
+       ["/unfollow"
+        {:post {:handler (partial self/unfollow-user! opts)
+                :parameters {:path [:map [:id :uuid]]}}}]
+       ["/mute"
+        {:post {:handler (partial self/mute-user! opts)
+                :parameters {:path [:map [:id :uuid]]}}}]
+       ["/unmute"
+        {:post {:handler (partial self/unmute-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/block"
+        {:post {:handler (partial self/block-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]
+       ["/unblock"
+        {:post {:handler (partial self/unblock-user! opts)
+               :parameters {:path [:map [:id :uuid]]}}}]]]]
 
     ["/users"
      ["/create"
       {:post {:handler (partial users/create-user! opts)
-              :parameters {:body users/create-user-body}}}]]
+              :parameters {:query users/create-user-body}}}]]
 
 
     ["/statuses/timeline/:nickname"

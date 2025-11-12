@@ -116,7 +116,7 @@
   (db-util/insert-unless-exists-tx
    :mushin.db/users
    doc
-   :nickname))
+   [:nickname]))
 
 (defn delete-user-tx
   "Create a transaction for deleting a user from the database.
@@ -200,7 +200,8 @@
 
   # Return value
   The user's `:user-id` if a login is allowed,
-  or a reason code for login rejection. Could be: `:timeout`, `:dead-account`, or `:wrong-nickname-or-password`"
+  or a reason code for login rejection. Could be: `no-account`, `:timeout`,
+  `:dead-account`, or `:wrong-nickname-or-password`"
   [xtdb-node nickname password]
   (let [{{:keys [type] :as state} :state :keys [password-hash xt/id]}
         (first (xt/q xtdb-node (xt/template (-> (from :mushin.db/users [{:nickname ~nickname} state password-hash xt/id])
@@ -208,6 +209,7 @@
     (cond
       (not= type :ok)
       (case type
+        nil :no-account
         :timeout :timeout
         :tombstone :dead-account
         (throw (ex-info "Invalid state for account" {:invalid-state :user :state state})))

@@ -1,5 +1,6 @@
 (ns org.mushin.web.controllers.i
-  (:require [ring.util.http-response :refer [not-found! accepted no-content unauthorized! conflict! ok]]
+  (:require [ring.util.http-response :refer [bad-request! not-found! accepted
+                                             no-content unauthorized! conflict! ok]]
             [org.mushin.db.authorization :as db-authz]
             [malli.experimental.time :as mallt]
             [clojure.tools.logging :as log]
@@ -138,9 +139,7 @@
     :keys [mushin/async?]}]
   (when (rel/has-relationship? xtdb-node :block user-id id)
     (conflict! {:error :user-already-blocked :message "You have already blocked that user" :user-id id}))
-  (if async?
-    (db/submit-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc :block user-id id)))
-    (db/execute-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc :block user-id id))))
+  (db/compose-and-run-txs! xtdb-node async? (rel/insert-block-tx user-id id))
   (no-content))
 
 
@@ -163,17 +162,35 @@
    {{{:keys [id]} :path} :parameters
     {:keys [user-id]}  :session
     :keys [mushin/async?]}]
-  (if-let [can-follow (rel/can-follow-user? xtdb-node user-id id)]
-    (case
-        :following
-      (conflict! {:error :user-already-muted :message "You have already muted that user" :user-id id})
+  (let [can-follow (rel/follow-tx xtdb-node user-id id)]
+    (if (vector? can-follow)
+      (do
+        (db/compose-and-run-txs! xtdb-node async? can-follow)
+        (no-content))
+      (case can-follow
+        :rel/following
+        (conflict! {:error :user-already-muted
+                    :message "You have already muted that user"
+                    :user-id user-id
+                    :target-id id})
 
-      (:can-follow :can-request-follow)
-      (if async?
-        (db/submit-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc :follow user-id id can-follow)))
-        (db/execute-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc :follow user-id id can-follow))))
-      (no-content))
-    (unauthorized! (auth/user-blocked id))))
+        :rel/self-follow
+        (bad-request! {:error :self-follow
+                       :message "You cannot follow yourself"
+                       :user-id user-id
+                       :target-id id})
+
+        :rel/denied
+        (unauthorized! {:error :denied
+                        :message "You cannot follow that user"
+                        :user-id user-id
+                        :target-id id})))))
+
+(defn follows?
+  [{:keys [xtdb-node]}
+   {{{:keys [id]} :path} :parameters
+    {:keys [user-id]}    :session}]
+  )
 
 (defn unmute-user!
   [{:keys [xtdb-node]}
@@ -201,9 +218,9 @@
    {{{:keys [id]} :path} :parameters
     {:keys [user-id]}  :session
     :keys [mushin/async?]}]
-  (if async?
-    (xt/submit-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc user-id id :follow :unfollow)))
-    (xt/execute-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc user-id id :follow :unfollow))))
+  (if async? ; TODO set to :unfollow
+    (xt/submit-tx xtdb-node [(rel/delete-realtion-tx :follow user-id id)])
+    (xt/execute-tx xtdb-node [(rel/delete-realtion-tx :follow user-id id)]))
   (no-content))
 
 (defn get-blocked-accounts
@@ -213,7 +230,7 @@
            offset-by    0
            n            20}} :query} :parameters
     {:keys [user-id]} :session}]
-  (rel/get-relationships xtdb-node :block user-id :n n :offset-by offset-by :order-column order-column :reverse reverse))
+  (ok (rel/get-related-accounts xtdb-node :block user-id)))
 
 
 (defn get-muted-accounts

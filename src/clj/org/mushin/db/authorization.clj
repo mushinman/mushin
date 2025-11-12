@@ -71,11 +71,11 @@
 
 (defn insert-actor-role-tx
   [doc]
-  (db/upsert-tx :mushin.db/actor-roles doc :role-id :actor-id))
+  (db/upsert-tx :mushin.db/actor-roles doc [:role-id :actor-id]))
 
 (defn insert-role-tx
   [doc]
-  (db/upsert-tx :mushin.db/roles doc :name))
+  (db/upsert-tx :mushin.db/roles doc [:name]))
 
 (defn role-doc
   "Create a role document. Will allocate a new `xt/id`.
