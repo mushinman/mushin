@@ -103,6 +103,12 @@
 
      ["/relationships"
 
+      ["/following"
+       {:get {:handler (partial self/get-following opts)
+              :parameters {:query (self/collection-query-schema)}}}]
+      ["/followers"
+       {:get {:handler (partial self/get-followers opts)
+              :parameters {:query (self/collection-query-schema)}}}]
       ["/blocks"
        {:get {:handler (partial self/get-blocked-accounts opts)
               :parameters {:query (self/collection-query-schema)}}}]

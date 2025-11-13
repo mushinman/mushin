@@ -171,20 +171,21 @@
           (db/compose-and-submit-txs! xtdb-node can-follow)
           (db/compose-and-execute-txs! xtdb-node can-follow))
         (no-content))
+
       (case can-follow
-        :rel/following
+        :following
         (conflict! {:error :user-already-muted
                     :message "You have already muted that user"
                     :user-id user-id
                     :target-id id})
 
-        :rel/self-follow
+        :self-follow
         (bad-request! {:error :self-follow
                        :message "You cannot follow yourself"
                        :user-id user-id
                        :target-id id})
 
-        :rel/denied
+        :denied
         (unauthorized! {:error :denied
                         :message "You cannot follow that user"
                         :user-id user-id
@@ -222,10 +223,39 @@
    {{{:keys [id]} :path} :parameters
     {:keys [user-id]}  :session
     :keys [mushin/async?]}]
-  (if async? ; TODO set to :unfollow
-    (xt/submit-tx xtdb-node [(rel/delete-realtion-tx :follow user-id id)])
-    (xt/execute-tx xtdb-node [(rel/delete-realtion-tx :follow user-id id)]))
-  (no-content))
+  (let [unfollow-tx (rel/unfollow-tx xtdb-node user-id id)]
+    (if (vector? unfollow-tx)
+      (do
+        (if async?
+          (db/compose-and-submit-txs! xtdb-node unfollow-tx)
+          (db/compose-and-execute-txs! xtdb-node unfollow-tx))
+        (no-content))
+      (bad-request!
+       {:error unfollow-tx
+        :message (case unfollow-tx
+                   :not-following
+                   "You cannot unfollow a user you are not following"
+
+                   :self-unfollow
+                    "You cannot unfollow yourself")}))))
+
+(defn get-following
+  [{:keys [xtdb-node]}
+   {{{:keys [order-column offset-by n reverse]
+      :or {order-column :created-at
+           offset-by    0
+           n            20}} :query} :parameters
+    {:keys [user-id]} :session}]
+  (ok (rel/get-related-accounts-from-source xtdb-node :follow user-id)))
+
+(defn get-followers
+  [{:keys [xtdb-node]}
+   {{{:keys [order-column offset-by n reverse]
+      :or {order-column :created-at
+           offset-by    0
+           n            20}} :query} :parameters
+    {:keys [user-id]} :session}]
+  (ok (rel/get-related-accounts-from-target xtdb-node :follow user-id)))
 
 (defn get-blocked-accounts
   [{:keys [xtdb-node]}
@@ -234,7 +264,7 @@
            offset-by    0
            n            20}} :query} :parameters
     {:keys [user-id]} :session}]
-  (ok (rel/get-related-accounts xtdb-node :block user-id)))
+  (ok (rel/get-related-accounts-from-source xtdb-node :block user-id)))
 
 
 (defn get-muted-accounts
@@ -244,4 +274,4 @@
            offset-by    0
            n            20}} :query} :parameters
     {:keys [user-id]} :session}]
-  (rel/get-relationships xtdb-node :muted user-id :n n :offset-by offset-by :order-column order-column :reverse reverse))
+  (ok (rel/get-related-accounts-from-source xtdb-node :mute user-id)))

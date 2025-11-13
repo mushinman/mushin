@@ -100,7 +100,7 @@
   "Column names that are used for upsert."
   [:type :source :target])
 
-(defn insert-unmute-tx
+(defn delete-mute-tx
   [source target]
   (db/delete-where
    :mushin.db/relationships
@@ -115,7 +115,7 @@
                 (relationship-doc source target :mute)
                 delete-where-cols))
 
-(defn insert-unblock-tx
+(defn delete-block-tx
   [source target]
   (db/compose-txs
    (db/delete-where
@@ -154,7 +154,7 @@
    ;; Delete the following row and insert follow.
    (db/delete-where
     :mushin.db/relationships
-    (xt/template (-> (from :mushin.db/relationships [{:type :following
+    (xt/template (-> (from :mushin.db/relationships [{:type :follow
                                                       :source ~source
                                                       :target ~target}])
                      (limit 1))))
@@ -167,12 +167,12 @@
   [source target pending?]
   (db/compose-txs
    ;; Ensure the target hasn't blocked the user.
-   (db/assert-not-exists-tx :mushin.db/relationships {:source ~target
-                                                      :target ~source
+   (db/assert-not-exists-tx :mushin.db/relationships {:source target
+                                                      :target source
                                                       :type :block})
    ;; Delete any previous following relationships and insert.
    (db/upsert-tx :mushin.db/relationships
-                 (relationship-doc source target :follow {:state (if pending? :follow-pending :follow-accept)})
+                 (relationship-doc source target :follow (if pending? :follow-pending :follow-accept))
                  delete-where-cols)))
 
 (defn delete-realtion-tx
@@ -187,10 +187,10 @@
   "True if the relationship has a state column, false if not."
   [rel]
   (case rel
-    (:follow-accept :follow-pending) true
+    :follow true
     false))
 
-(defn get-related-accounts
+(defn get-related-accounts-from-source
   [xtdb-node type source-id]
   (xt/q
    xtdb-node
@@ -204,6 +204,21 @@
                          :nickname nickname}})
            (return at user ~@(if (stateful? type) ['state] [])))))
     type source-id]))
+
+(defn get-related-accounts-from-target
+  [xtdb-node type target-id]
+  (xt/q
+   xtdb-node
+   [(xt/template
+     (fn [rel-type rel-target-id]
+       (-> (unify
+            (from :mushin.db/relationships [created-at source state {:target rel-target-id :type rel-type}])
+            (from :mushin.db/users [nickname {:xt/id source}]))
+           (order-by created-at)
+           (with {:user {:xt/id source
+                         :nickname nickname}})
+           (return at user ~@(if (stateful? type) ['state] [])))))
+    type target-id]))
 
 (defn get-relationships
   "Get a collection of relationships with other users.
@@ -277,27 +292,21 @@
 
   Return value
   If a following relationship is possible then a transaction is returned, else:
-  - `::self-follow`: The follower is trying to follow themself
-  - `::following`: The follow is allready following the followee
-  - `::denied`: The follower does not have permission to follow the followee"
+  - `:self-follow`: The follower is trying to follow themself
+  - `:following`: The follow is allready following the followee
+  - `:denied`: The follower does not have permission to follow the followee"
   [xtdb-node follower-id followee-id]
   (if (= follower-id followee-id)
-    ::self-follow
+    :self-follow
     (let [perm (users/check-user-can-view-user xtdb-node follower-id followee-id)]
       (if (or (= perm :allowed)
               (= perm :locked))
         (let [follows? (:state (get-relationship-with xtdb-node :follow follower-id followee-id))]
           (if (or (= :follow-pending follows?)
                   (= :follow-accept follows?))
-            ::following
-            (insert-follow-tx (relationship-doc
-                               :follow
-                               follower-id
-                               followee-id
-                               (if (= perm :allowed)
-                                 :follow-accept
-                                 :follow-pending)))))
-        ::denied))))
+            :following
+            (insert-follow-tx follower-id followee-id (if (= perm :allowed) :follow-accept :follow-pending))))
+        :denied))))
 
 (defn unfollow-tx
   "Attempts to create an unfollowing relationship tx between a exfollower
@@ -306,17 +315,13 @@
   Return value
   If an unfollowing relationship is possible then a transaction is
   returned, else:
-  - `::self-unfollow`: The ex-follower is trying unfollow themselves
-  - `::not-following`: There ex-follower is not following the ex-followee."
+  - `:self-unfollow`: The ex-follower is trying unfollow themselves
+  - `:not-following`: There ex-follower is not following the ex-followee."
   [xtdb-node ex-follower-id ex-followee-id]
   (if (= ex-followee-id ex-follower-id)
-    ::self-unfollow
-    (when-let [follows? (:state (get-relationship-with xtdb-node :follow ex-follower-id ex-followee-id))]
+    :self-unfollow
+    (if-let [follows? (:state (get-relationship-with xtdb-node :follow ex-follower-id ex-followee-id))]
       (case follows?
         (:follow-accept :follow-pending)
-        (insert-relation-tx (relationship-doc
-                             :follow
-                             ex-follower-id
-                             ex-followee-id
-                             :unfollow))
-        nil))))
+        (insert-unfollow-tx ex-follower-id ex-followee-id))
+      :not-following)))
