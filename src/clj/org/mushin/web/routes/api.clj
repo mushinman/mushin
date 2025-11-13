@@ -115,9 +115,6 @@
         {:post {:handler (partial self/follow-user! opts)
                 :parameters {:path [:map [:id :uuid]]}}}]
 
-                                        ;["/follow-accept"
-                                        ; {:post {}}]
-
        ["/unfollow"
         {:post {:handler (partial self/unfollow-user! opts)
                 :parameters {:path [:map [:id :uuid]]}}}]
@@ -137,7 +134,7 @@
     ["/users"
      ["/create"
       {:post {:handler (partial users/create-user! opts)
-              :parameters {:query users/create-user-body}}}]]
+              :parameters {:body users/create-user-body}}}]]
 
 
     ["/statuses/timeline/:nickname"

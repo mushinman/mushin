@@ -139,7 +139,9 @@
     :keys [mushin/async?]}]
   (when (rel/has-relationship? xtdb-node :block user-id id)
     (conflict! {:error :user-already-blocked :message "You have already blocked that user" :user-id id}))
-  (db/compose-and-run-txs! xtdb-node async? (rel/insert-block-tx user-id id))
+  (if async?
+    (db/compose-and-submit-txs! xtdb-node (rel/insert-block-tx user-id id))
+    (db/compose-and-execute-txs! xtdb-node (rel/insert-block-tx user-id id)))
   (no-content))
 
 
@@ -165,7 +167,9 @@
   (let [can-follow (rel/follow-tx xtdb-node user-id id)]
     (if (vector? can-follow)
       (do
-        (db/compose-and-run-txs! xtdb-node async? can-follow)
+        (if async?
+          (db/compose-and-submit-txs! xtdb-node can-follow)
+          (db/compose-and-execute-txs! xtdb-node can-follow))
         (no-content))
       (case can-follow
         :rel/following

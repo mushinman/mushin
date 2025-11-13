@@ -270,23 +270,32 @@
          cat)
    txs))
 
-(defn compose-and-run-txs!
+(defn compose-and-submit-txs!
   "Combine XTDB transaction vectors  into a single transaction and execute.
 
   # Arguments
    - `con`: XTDB connection
-   - `async?`: If true then the transaction will run via `submit-tx`, else `execute-tx`.
    - `txs`: Each argument can be a single statement (e.g.
   `[:put-docs :mushin.db/users {:xt/id (random-uuid)}]`) or a vector of statements
   (e.g. [[:put-docs :mushin.db/users {:xt/id (random-uuid)}] [:sql 'DELETE FROM likes']]),
   or nil.
 
   # Return value
-  See `submit-tx` and `execute-tx`."
-  [con async? txs]
-    (println "before" txs)
-  (let [txs (apply compose-txs txs)]
-    (println "after " txs)
-    (if async?
-      (submit-tx con txs)
-      (execute-tx con txs))))
+  See `submit-tx`."
+  [con txs]
+  (submit-tx con (apply compose-txs txs)))
+
+(defn compose-and-execute-txs!
+  "Combine XTDB transaction vectors  into a single transaction and execute.
+
+  # Arguments
+   - `con`: XTDB connection
+   - `txs`: Each argument can be a single statement (e.g.
+  `[:put-docs :mushin.db/users {:xt/id (random-uuid)}]`) or a vector of statements
+  (e.g. [[:put-docs :mushin.db/users {:xt/id (random-uuid)}] [:sql 'DELETE FROM likes']]),
+  or nil.
+
+  # Return value
+  See `submit-tx`."
+  [con txs]
+  (execute-tx con (apply compose-txs txs)))

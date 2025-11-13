@@ -177,11 +177,18 @@
 
 (defn delete-realtion-tx
   "Create a XTDB transaction that deletes a relationshp."
-  [source target type]
+  [type source target]
   (db/delete-doc
    :mushin.db/relationships
    {:source source :target target :type type}
    [:source :target :type]))
+
+(defn- stateful?
+  "True if the relationship has a state column, false if not."
+  [rel]
+  (case rel
+    (:follow-accept :follow-pending) true
+    false))
 
 (defn get-related-accounts
   [xtdb-node type source-id]
@@ -190,9 +197,12 @@
    [(xt/template
      (fn [rel-type rel-source-id]
        (-> (unify
-            (from :mushin.db/relationships [created-at {:source rel-source-id :type rel-type :target relatee-id}])
-            (from :mushin.db/users [nickname {:xt/id relatee-id}]))
-           (order-by created-at))))
+            (from :mushin.db/relationships [created-at target state {:source rel-source-id :type rel-type :xt/id at}])
+            (from :mushin.db/users [nickname {:xt/id target}]))
+           (order-by created-at)
+           (with {:user {:xt/id target
+                         :nickname nickname}})
+           (return at user ~@(if (stateful? type) ['state] [])))))
     type source-id]))
 
 (defn get-relationships
