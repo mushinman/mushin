@@ -8,7 +8,7 @@
 
 (defn- get-resource-file-path
   "For a given base file path to the resource folder and the name of the resource
-generate a unique file path for the resource.
+  generate a unique file path for the resource.
   # Arguments:
   - `base`: A java Path to the resources folder.
   - `resource-name`: The name of the resource.
@@ -28,8 +28,8 @@ generate a unique file path for the resource.
 (defrecord FileSystemResourceMap
     [^Path base-path resource-map-url-base]
   interface/ResourceMap
-  (create! [this name resource-data]
-    (let [resource-path (get-resource-file-path (:base-path this) name)
+  (create! [_ name resource-data]
+    (let [resource-path (get-resource-file-path base-path name)
           resource-path-str (str resource-path)]
       (when (files/not-exists resource-path)
         (io/make-parents resource-path-str)
@@ -42,12 +42,12 @@ generate a unique file path for the resource.
           (instance? InputStream resource-data) (with-open [output-file (io/output-stream resource-path-str)]
                                                   (io/copy resource-data output-file))))
       name))
-  (delete! [this name]
-    (files/delete-if-exists (get-resource-file-path (:base-path this) name)))
-  (exists? [this name]
-    (files/exists (get-resource-file-path (:base-path this) name)))
-  (to-url [this name]
-    (when (interface/exists? this name)
-      (join resource-map-url-base (:resource-map-url-base this) (get-resource-file-path (:base-path this) name))))
-  (open [this name]
-    (io/input-stream (str (get-resource-file-path (:base-path this) name)))))
+  (delete! [_ name]
+    (files/delete-if-exists (get-resource-file-path base-path name)))
+  (exists? [_ name]
+    (files/exists (get-resource-file-path base-path name)))
+  (to-url [_ name]
+    (when (interface/exists? _ name)
+      (join resource-map-url-base (get-resource-file-path base-path name))))
+  (open [_ name]
+    (io/input-stream (str (get-resource-file-path base-path name)))))

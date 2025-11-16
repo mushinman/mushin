@@ -1,0 +1,129 @@
+{"Kageaki_Minato" {:nickname "Kageaki_Minato"
+                   :blocks ["Doshin_Yusa" "Yuhi_Nitta"]
+                   :follows ["Hikaru_Minato" "Misao_Oji"]}
+
+ "Hikaru_Minato" {:nickname "Hikaru_Minato"
+                  :bocks ["Subaru_Minato"]}
+
+ "Subaru_Minato" {:nickname "Subaru_Minato"
+                  :follows ["kageaki_Minato"]}
+
+ "Doshin_Yusa" {:nickname "Doshin_Yusa"
+                :follows []}
+
+ "Yuhi_Nitta" {:nickname "Yuhi_Nitta"
+               }
+
+ "Ichijo_Ayane" {:nickname "Ichijo_Ayane"
+                 }
+
+ "Kanae_Otori" {:nickname "Kanae_Otori"
+                }
+
+ "Chachamaru_Ashikaga" {:nickname "Chachamaru_Ashikaga"
+                        }
+
+ "Tadayasu_Inagi" {:nickname "Tadayasu_Inagi"
+                   }
+
+ "Ritsu_Kazama" {:nickname "Ritsu_Kazama"
+                 }
+
+ "Ryobu_Suzukawa" {:nickname "Ryobu_Suzukawa"
+                   }
+
+ "Misao_Oji" {:nickname "Misao_Oji"
+              }
+
+ "Suguru_Oji" {:nickname "Suguru_Oji"
+               }
+
+ "Moriuji_Ashikaga" {:nickname "Moriuji_Ashikaga"
+                     }
+
+ "Shiro_Ashikaga" {:nickname "Shiro_Ashikaga"
+                   }
+
+ "Shishiku_Otori" {:nickname "Shishiku_Otori"
+                   }
+
+ "Raicho_Imagawa" {:nickname "Raicho_Imagawa"
+                   }
+
+ "Morimasa_Ashikaga" {:nickname "Morimasa_Ashikaga"
+                      }
+
+ "Ukyo_Nagasaka" {:nickname "Ukyo_Nagasaka"
+                  }
+
+ "Kotaro_Fuma" {:nickname "Kotaro_Fuma"
+                }
+
+ "Jo'ansai_Yagyu" {:nickname "Jo'ansai_Yagyu"
+                   }
+
+ "Charles_Willow" {:nickname "Charles_Willow"
+                   }
+
+ "Clive_Cannon" {:nickname "Clive_Cannon"
+                 }
+
+ "George_Gargett" {:nickname "George_Gargett"
+                   }
+
+ "Thomas_Cobden" {:nickname "Thomas_Cobden"
+                  }
+
+ "Wolfram_Von sievers" {:nickname "Wolfram_Von sievers"
+                        }
+
+ "Ichizo_Sorimachi" {:nickname "Ichizo_Sorimachi"
+                     }
+
+ "Akitaka_Kikuchi" {:nickname "Akitaka_Kikuchi"
+                    }
+
+ "Sayo_Nagakura" {:nickname "Sayo_Nagakura"
+                  }
+
+ "Sakurako_Okabe" {:nickname "Sakurako_Okabe"
+                   }
+
+ "Doji_Kuronose" {:nickname "Doji_Kuronose"
+                  }
+
+ "Hanae_Otori" {:nickname "Hanae_Otori"
+                }
+
+ "Ruby_Sarchant" {:nickname "Ruby_Sarchant"
+                  }
+
+ "Ichido_Ayane" {:nickname "Ichido_Ayane"
+                 }
+
+ "Mizuhi_Ichigao" {:nickname "Mizuhi_Ichigao"
+                   }
+
+ "Kazume_Ichigao" {:nickname "Kazume_Ichigao"
+                   }
+
+ "Takeda_Akane" {:nickname "Takeda_Akane"
+                 }
+
+ "Igarasu_Yoshia" {:nickname "Igarasu_Yoshia"
+                   }
+
+ "Itsurin_Mitsuaki" {:nickname "Itsurin_Mitsuaki"
+                     }
+
+ "Takigawa_Yumi" {:nickname "Takigawa_Yumi"
+                  }
+
+ "Katsuraba_Kyouko" {:nickname "Katsuraba_Kyouko"
+                     }
+
+ "Watari_Shirobee" {:nickname "Watari_Shirobee"
+                    }
+
+ "ishima_Kaigen" {:nickname "ishima_Kaigen" }
+}

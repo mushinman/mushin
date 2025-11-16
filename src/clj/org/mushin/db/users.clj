@@ -11,6 +11,7 @@
 
 (def nickname-regex "Regular that describes a valid nickname" #"\w+")
 
+
 (def nickname-schema
   "Schema for the nickname"
   [:nickname [:and [:and [:string {:min 1 :max 32}] [:re nickname-regex]]]])
@@ -53,6 +54,9 @@
     [:email {:optional true}  [:and ::short-string [:re #".+@.+"]]]
     [:log-counter             :int]
     [:nickname                :string]
+    [:display-name            :string]
+    [:avatar                  'uri?]
+    [:banner                  'uri?]
     [:password-hash           :string]
     [:bio                     :string]
     [:state                   user-states-schema]
@@ -95,15 +99,18 @@
       first
       :xt/id))
 
-(defn create-user [nickname password & email]
+(defn create-user [nickname password avatar-uri banner-uri bio display-name & email]
   (let [now (jt/zoned-date-time)]
     (cond-> (merge
              {:xt/id (uuid/v7)
               :nickname nickname
+              :display-name display-name
               :local? true
               :state {:type :ok}
               :log-counter 0
-              :bio ""
+              :avatar avatar-uri
+              :banner banner-uri
+              :bio bio
               :password-hash (crypt/hash-password password)
               :joined-at now
               :privacy-level :open

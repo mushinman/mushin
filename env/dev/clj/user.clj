@@ -3,6 +3,7 @@
   (:require
     [clojure.pprint]
     [clojure.spec.alpha :as s]
+    [org.mushin.db.users :as users]
     [clojure.tools.namespace.repl :as repl]
     [criterium.core :as c]                                  ;; benchmarking
     [expound.alpha :as expound]
@@ -53,6 +54,9 @@
 (def refresh repl/refresh)
 
 
+(defn inject-test-data
+  [node path]
+  )
 
 (comment
   (go)
