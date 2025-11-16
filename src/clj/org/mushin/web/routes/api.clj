@@ -5,6 +5,7 @@
    [org.mushin.web.middleware.exception :as exception]
    [org.mushin.web.middleware.formats :as formats]
    [org.mushin.web.middleware.state :as state]
+   [org.mushin.web.middleware.decode :as decode]
    [integrant.core :as ig]
    [ring.util.response :as resp]
    [org.mushin.web.middleware.auth :as auth]
@@ -41,6 +42,8 @@
                 muuntaja/format-request-middleware
                 ;; coercing response bodys
                 coercion/coerce-response-middleware
+                ;; Decode special params
+                decode/wrap-encoded-params
                 ;; coercing request parameters
                 coercion/coerce-request-middleware
                 ;; exception handling

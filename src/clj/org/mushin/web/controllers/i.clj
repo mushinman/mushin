@@ -4,14 +4,13 @@
             [org.mushin.db.authorization :as db-authz]
             [malli.experimental.time :as mallt]
             [clojure.tools.logging :as log]
-            [org.mushin.web.auth-utils :as auth]
             [org.mushin.db.likes :as likes]
             [xtdb.api :as xt]
             [org.mushin.db.util :as db]
             [org.mushin.db.timeline :as db-timeline]
-            [org.mushin.db.users :as db-users]
             [org.mushin.db.relationship :as rel]
-            [org.mushin.db.users :as users]))
+            [org.mushin.db.users :as users]
+            [java-time.api :as time]))
 
 (def any-timestamp
   "A schema for any date object that xtdb supports."
@@ -19,15 +18,25 @@
    (mallt/-zoned-date-time-schema)
    (mallt/-instant-schema)]) ; TODO Maybe we can support more types with a value transformer...
 
-
 (defn collection-query-schema
   "Create a schema for api calls that return collections."
   [& {:keys [n-max]
       :or {n-max 20}}]
   [:map
+   [:cursor {:optional true}
+    [:multi {:dispatch (fn [{:keys [last]}] (first last))}
+     [:at
+      [:map
+       [:cursor-id :uuid]
+       [:last [:tuple :keyword any-timestamp]]]]
+     [:nickname
+      [:map
+       [:cursor-id :uuid]
+       [:last [:tuple :keyword :string]]]]]]
    [:reverse      {:optional true} :boolean]
    [:order-column {:optional true} [:enum :created-at :name]]
    [:n            {:optional true} [:int {:min 0 :max n-max}]]])
+
 
 (def bitemporal-query-schema
   "Schema for bitemporal queries."
@@ -44,6 +53,7 @@
                               [:map [:from any-timestamp]]
                               [:map [:to any-timestamp]]]]])
 
+
 (def bitemporal-collection-query-schema
   "Schema for bitemporal queries on collections."
   [:or
@@ -59,7 +69,7 @@
   [{:keys [xtdb-node]}
    {{:keys [user-id]} :session}]
   (if-let [user-doc
-           (db-users/get-user-by-id
+           (users/get-user-by-id
             xtdb-node
             user-id
             '[xt/id email log-counter nickname bio privacy-level local? joined-at last-logged-in-at state])]
@@ -77,16 +87,16 @@
     :keys [mushin/async?]}]
   ;; TODO also invalidate the session state for the deleted user.
   (log/info {:event :delete-me :user-id user-id})
-  (let [nick (:nickname (db-users/get-user-by-id xtdb-node user-id))]
+  (let [nick (:nickname (users/get-user-by-id xtdb-node user-id))]
     (log/info {:delete-me-part2 "yup" :nick nick})
     (when-not (users/check-nickname-and-password xtdb-node nick password)
       (unauthorized! {:error :invalid-password}))
     (if async?
       (do
-        (db/submit-tx xtdb-node (db-users/delete-user-tx user-id))
+        (db/submit-tx xtdb-node (users/delete-user-tx user-id))
         (accepted))
       (do
-        (db/execute-tx xtdb-node (db-users/delete-user-tx user-id))
+        (db/execute-tx xtdb-node (users/delete-user-tx user-id))
         (no-content)))))
 
 (defn create-status
@@ -144,19 +154,19 @@
     (db/compose-and-execute-txs! xtdb-node (rel/insert-block-tx user-id id)))
   (no-content))
 
-
 (defn mute-user!
-  "API handler for muting a user."
+  "API handler for blocking a user."
   [{:keys [xtdb-node]}
    {{{:keys [id]} :path} :parameters
     {:keys [user-id]}  :session
     :keys [mushin/async?]}]
-  (when (rel/has-relationship? xtdb-node :mute user-id id)
+  (when (rel/has-relationship? xtdb-node :block user-id id)
     (conflict! {:error :user-already-muted :message "You have already muted that user" :user-id id}))
   (if async?
-    (db/submit-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc :mute user-id id)))
-    (db/execute-tx xtdb-node (rel/insert-relation-tx (rel/relationship-doc :mute user-id id))))
+    (db/compose-and-submit-txs! xtdb-node (rel/insert-mute-tx user-id id))
+    (db/compose-and-execute-txs! xtdb-node (rel/insert-mute-tx user-id id)))
   (no-content))
+
 
 (defn follow-user!
   "API handler for following a user."
@@ -217,7 +227,6 @@
     (xt/execute-tx xtdb-node [(rel/delete-realtion-tx :block user-id id)]))
   (no-content))
 
-
 (defn unfollow-user!
   [{:keys [xtdb-node]}
    {{{:keys [id]} :path} :parameters
@@ -239,32 +248,37 @@
                    :self-unfollow
                     "You cannot unfollow yourself")}))))
 
+
 (defn get-following
   [{:keys [xtdb-node]}
-   {{{:keys [order-column offset-by n reverse]
+   {{{:keys [order-column offset-by n reverse cursor]
       :or {order-column :created-at
            offset-by    0
-           n            20}} :query} :parameters
+           n            20}
+      :as q} :query} :parameters
     {:keys [user-id]} :session}]
-  (ok (rel/get-related-accounts-from-source xtdb-node :follow user-id)))
+
+  (ok (rel/get-related-accounts xtdb-node :follow user-id true q)))
 
 (defn get-followers
   [{:keys [xtdb-node]}
    {{{:keys [order-column offset-by n reverse]
       :or {order-column :created-at
            offset-by    0
-           n            20}} :query} :parameters
+           n            20}
+      :as q} :query} :parameters
     {:keys [user-id]} :session}]
-  (ok (rel/get-related-accounts-from-target xtdb-node :follow user-id)))
+  (ok (rel/get-related-accounts xtdb-node :follow user-id false q)))
 
 (defn get-blocked-accounts
   [{:keys [xtdb-node]}
    {{{:keys [order-column offset-by n reverse]
       :or {order-column :created-at
            offset-by    0
-           n            20}} :query} :parameters
+           n            20}
+      :as q} :query} :parameters
     {:keys [user-id]} :session}]
-  (ok (rel/get-related-accounts-from-source xtdb-node :block user-id)))
+  (ok (rel/get-related-accounts xtdb-node :block user-id true q)))
 
 
 (defn get-muted-accounts
@@ -272,6 +286,7 @@
    {{{:keys [order-column offset-by n reverse]
       :or {order-column :created-at
            offset-by    0
-           n            20}} :query} :parameters
+           n            20}
+      :as q} :query} :parameters
     {:keys [user-id]} :session}]
-  (ok (rel/get-related-accounts-from-source xtdb-node :mute user-id)))
+  (ok (rel/get-related-accounts xtdb-node :mute user-id true q)))

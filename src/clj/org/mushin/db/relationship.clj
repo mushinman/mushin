@@ -5,7 +5,8 @@
             [clj-uuid :as uuid]
             [java-time.api :as jt]
             [org.mushin.db.users :as users]
-            [org.mushin.db.util :as db]))
+            [org.mushin.db.util :as db])
+  (:import [java.time Instant]))
 
 
 (def ^:private relationship-types-schema
@@ -190,35 +191,96 @@
     :follow true
     false))
 
-(defn get-related-accounts-from-source
-  [xtdb-node type source-id]
-  (xt/q
-   xtdb-node
-   [(xt/template
-     (fn [rel-type rel-source-id]
-       (-> (unify
-            (from :mushin.db/relationships [created-at target state {:source rel-source-id :type rel-type :xt/id at}])
-            (from :mushin.db/users [nickname {:xt/id target}]))
-           (order-by created-at)
-           (with {:user {:xt/id target
-                         :nickname nickname}})
-           (return at user ~@(if (stateful? type) ['state] [])))))
-    type source-id]))
+(defn- get-column
+  [name]
+  (case name
+    :at 'at
+    :nickname 'nickname))
 
-(defn get-related-accounts-from-target
-  [xtdb-node type target-id]
-  (xt/q
-   xtdb-node
-   [(xt/template
-     (fn [rel-type rel-target-id]
-       (-> (unify
-            (from :mushin.db/relationships [created-at source state {:target rel-target-id :type rel-type}])
-            (from :mushin.db/users [nickname {:xt/id source}]))
-           (order-by created-at)
-           (with {:user {:xt/id source
-                         :nickname nickname}})
-           (return at user ~@(if (stateful? type) ['state] [])))))
-    type target-id]))
+(defn get-related-accounts
+  "Get a collection of accounts related to the source or target user by type.
+
+  # Arguments
+  - `xtdb-node`: Database con.
+  - `type`: Relationship type.
+  - `user-id`: User ID of the source or target user.
+  - `source?`: True if the user-id is the source user, false if the target user
+  # Optional arguments
+  - `n`: The number of rows to fetch. Must be an integer greater than 0.
+  - `cursor`: A cursor into the table. See note for more details.
+  - `reverse`: Reverse the order of the collection (descend instead of ascend).
+  - `prev-page`: If true: fetch the previous page instead of the next page.
+  - `order-column`: The initial column to order and paginate by. (Ignored if cursor is provided).
+
+  Cursor format: The cursor is a map for the following structure:
+  | Key          | Type  | Meaning                                                           |
+  |:-------------|:------|:------------------------------------------------------------------|
+  | `:cursor-id` | UUID  | ID of the last returned column                                    |
+  | `:last`      | Tuple | The paginated column name and last returned value for that column |
+
+  # Return value
+  A map of the following structure:
+  | Key       | Type       | Meaning                                 | Note                              |
+  |:----------|:-----------|:----------------------------------------|-----------------------------------|
+  | `:result` | Collection | The result collection of the query      |                                   |
+  | `:cursor` | Map        | A cursor to the last item in collection | Absent if the result set is empty |
+  "
+  [xtdb-node type source-id source? {:keys [n cursor reverse prev-page order-column]
+                                     :or {n 10
+                                          order-column :at}}]
+
+  (let [;; Asc by default, and reverse and prev-page cancel each other out.
+        order-direction (if reverse :desc :asc)
+
+        cursor-dir (if prev-page (if reverse :asc :desc) (if reverse :desc :asc))
+
+        {[cursor-column-name cursor-value] :last :keys [cursor-id]} cursor
+
+        cursor-column-name (or cursor-column-name order-column :at) ; Default value.
+
+        cursor-column (case cursor-column-name
+                        :at 'at
+                        :nickname 'nickname)
+
+        result
+        (xt/q
+         xtdb-node
+         [(xt/template
+           (fn [rel-type rel-user-id cursor-value cursor-id n backwards order-direction no-cursor]
+             (->
+              (unify
+               (from :mushin.db/relationships [state {~(if source? :source :target) rel-user-id
+                                                      ~(if source? :target :source) relatee-id
+                                                      :type rel-type
+                                                      :created-at at
+                                                      :xt/id rel-id}])
+               (from :mushin.db/users [nickname {:xt/id relatee-id}]))
+              (where (or no-cursor
+                         (if (or (and (not backwards) (= order-direction :asc))
+                                 (and backwards (= order-direction :desc)))
+                           (or (> ~cursor-column cursor-value)
+                               (and (= ~cursor-column cursor-value) (> rel-id cursor-id)))
+                           (or (< ~cursor-column cursor-value)
+                               (and (= ~cursor-column cursor-value) (< rel-id cursor-id))))))
+              (order-by {:val ~cursor-column
+                         :dir ~cursor-dir
+                         :nulls :last}
+                        {:val rel-id
+                         :dir ~cursor-dir})
+              (limit ?_4)
+              (with {:user {:xt/id relatee-id
+                            :nickname nickname}})
+              (return rel-id at user ~@(if (stateful? type) ['state] [])))))
+          type source-id cursor-value cursor-id n (boolean prev-page) order-direction (not (boolean cursor))])
+
+        {{:keys [nickname]} :user :keys [rel-id at] :as last-row} (last result)]
+    (cond-> {:result result}
+      (or last-row (< n (count result)))
+      (assoc :cursor {:cursor-id rel-id
+                      :last [cursor-column-name (case cursor-column-name
+                                                  :at at
+                                                  :nickname nickname)]}))))
+
 
 (defn get-relationships
   "Get a collection of relationships with other users.
