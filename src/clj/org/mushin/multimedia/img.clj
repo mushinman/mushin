@@ -50,7 +50,11 @@
   ([^Integer width ^Integer height ^Integer image-type ^IndexColorModel cm]
    (BufferedImage. width height image-type cm))
   ([^Integer width ^Integer height ^Integer image-type]
-   (BufferedImage. width height image-type)))
+   (BufferedImage. width height image-type))
+  ([file-path]
+   (with-open [file (io/input-stream file-path)]
+     (ImageIO/read file))))
+
 
 (defn ints-to-byte-icm
   ^IndexColorModel
@@ -99,11 +103,6 @@
       (finally
         (.dispose writer)))))
 
-(defn get-img
-  [file-path]
-  (with-open [file (io/input-stream file-path)]
-
-    (ImageIO/read file)))
 
 (defn create-image-output-stream
   ^ImageOutputStream

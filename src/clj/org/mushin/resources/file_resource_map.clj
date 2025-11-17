@@ -28,7 +28,7 @@
 (defrecord FileSystemResourceMap
     [^Path base-path resource-map-url-base]
   interface/ResourceMap
-  (create! [_ name resource-data]
+  (create! [this name resource-data]
     (let [resource-path (get-resource-file-path base-path name)
           resource-path-str (str resource-path)]
       (when (files/not-exists resource-path)
@@ -39,9 +39,10 @@
 
           (instance? Path resource-data) (files/copy resource-data resource-path)
 
+          ;; TODO this isn't atomic.
           (instance? InputStream resource-data) (with-open [output-file (io/output-stream resource-path-str)]
                                                   (io/copy resource-data output-file))))
-      name))
+      (interface/to-url this name)))
   (delete! [_ name]
     (files/delete-if-exists (get-resource-file-path base-path name)))
   (exists? [_ name]

@@ -110,8 +110,8 @@
   # Return
   The mime type of the file at `file-path`, or nil if it could not be determined."
   ^String
-  [^Path file-path]
-  (Files/probeContentType file-path))
+  [file-path]
+  (Files/probeContentType (path (str file-path))))
 
 
 (defn create-temp-file

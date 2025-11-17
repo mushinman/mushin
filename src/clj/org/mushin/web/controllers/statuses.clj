@@ -7,19 +7,10 @@
             [org.mushin.db.util :as db-u]
             [xtdb.api :as xt]
             [org.mushin.files :as files]
-            [org.mushin.resources.resource-map :as res]
-            [org.mushin.multimedia.captions :as caption]
-            [org.mushin.multimedia.svg :as svg]
-            [org.mushin.mime :as mime]
             [clojure.walk :as walk]
-            [org.mushin.multimedia.img :as img]
-            [clojure.java.io :as io]
-            [org.mushin.digest :as digest]
-            [org.mushin.codecs :as codecs]
-            [org.mushin.multimedia.gif :as gif])
+            [clojure.java.io :as io])
   (:import [java.io InputStream]
-           [javax.imageio ImageIO]
-           [java.awt.image BufferedImage]))
+           [javax.imageio ImageIO]))
 
 (def create-picture-post-body
   [:map
@@ -90,238 +81,158 @@
       [:map [:panel [:enum :effect]]
        [:content [:enum :brush :pencil :splatter]]]]]]])
 
-(defn- comic-tag?
-  [node]
-  (and (vector? node) (keyword? (first node))))
-;; TODO finish
-(defn- comic-dsl->hiccough
-  [resource-map comic]
-  (walk/postwalk
-   (fn [node]
-    (cond
-      (comic-tag? node)
-      ()
+;; (defn- comic-tag?
+;;   [node]
+;;   (and (vector? node) (keyword? (first node))))
+;; ;; TODO finish
+;; (defn- comic-dsl->hiccough
+;;   [resource-map comic]
+;;   (walk/postwalk
+;;    (fn [node]
+;;     (cond
+;;       (comic-tag? node)
+;;       ()
 
-      :else node))
-   comic))
+;;       :else node))
+;;    comic))
 
-(defn- verify-image-upload
-  [^InputStream image-stream]
-  true) ; TODO
-
-(defn- create-resource-from-static-img!
-  [^BufferedImage img resource-map mime-type]
-  (let [mime-ext (mime/mime-type-to-extensions mime-type)
-        resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)]
-    (if (res/exists? resource-map resource-name)
-      resource-name
-      (let [output-file-path (files/create-temp-file)]
-        (try
-          (with-open [temp-output-file (io/output-stream (str output-file-path))
-                      image-ios (ImageIO/createImageOutputStream temp-output-file)]
-            (img/write-img-from-mime-type img mime-type image-ios))
-          (res/create! resource-map resource-name output-file-path)
-          (finally
-            (files/delete-if-exists output-file-path)))))))
-
-(defn- create-captioned-static-img-resource!
-  [^BufferedImage img resource-map mime-type text ratio]
-  (let [mime-ext (mime/mime-type-to-extensions mime-type)
-        resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)
-        output-file-path (files/create-temp-file)]
-    (try
-      ;; Unlike in the non-captioned variant we unconditionally create the temp image
-      ;; since we'll need it to render the captioned image.
-      (with-open [temp-output-file (io/output-stream (str output-file-path))
-                  image-ios (ImageIO/createImageOutputStream temp-output-file)]
-        (img/write-img-from-mime-type img mime-type image-ios))
-
-      (if (res/exists? resource-map resource-name)
-        ;; Ensure resource exists.
-        resource-name
-        (res/create! resource-map resource-name output-file-path))
-
-      (let [;; Save the captioned version of the image, the SVG.
-            width (.getWidth img)
-            height (.getHeight img)
-            caption-pixel-height (* height (/ ratio 100.0))
-            full-img-height (+ caption-pixel-height height)
-            rendered-caption-img-name (create-resource-from-static-img!
-                                       (svg/render-document
-                                        (caption/caption-svg width height
-                                                       (files/path->uri output-file-path) text caption-pixel-height)
-                                        width full-img-height)
-                                       resource-map mime-type)
-
-            caption-svg-name
-            (let [temp-svg (files/create-temp-file)]
-              (try
-                (svg/write-svgdoc-to-file! (caption/caption-svg width height
-                                                          (res/to-url resource-map resource-name) text caption-pixel-height)
-                                           temp-svg)
-                (let [resource-name (str (digest/digest->b64u (digest/digest-file temp-svg)) ".svg")]
-                  (res/create! resource-map resource-name temp-svg))
-                (finally
-                  (files/delete-if-exists temp-svg))))]
-        {:base-img resource-name :captioned-img rendered-caption-img-name :svg-doc caption-svg-name})
-      (finally
-        (files/delete-if-exists output-file-path)))))
-
-(defn create-resource-for-gif!
-  [^InputStream gif-stream resource-map]
-  (let [gif (gif/get-gif-from-stream gif-stream)
-        resource-name (str (loop [i 0
-                                  md (digest/create-sha256-digest)
-                                  scenes (:scenes gif)]
-                             ;; Digest every frame.
-                             ;; TODO similar to the static frames we probably want to add some metadata
-                             ;; to the checksum, like if it loops or not.
-                             (if-not (= i (count gif))
-                               (do (img/digest-img! (:frame (nth scenes i)) md)
-                                   (recur (inc i) md scenes))
-                               (digest/digest->b64u md)))
-                           ".gif")]
-    (if (res/exists? resource-map resource-name)
-      resource-name
-      (let [output-file-path (files/create-temp-file "" "")]
-        (try
-          (with-open [temp-output-file (io/output-stream (str output-file-path))
-                      image-ios (ImageIO/createImageOutputStream temp-output-file)]
-            (gif/write-gif-to-stream image-ios gif))
-          (res/create! resource-map resource-name output-file-path)
-          (finally
-            (files/delete-if-exists output-file-path)))))))
-
-(defn create-captioned-resources-from-uploaded-file!
-  [file-location resource-map {:keys [text ratio]}]
-  (let [file-location-path (files/path file-location)
-        file-mime-type (files/probe-content-type file-location-path)]
-    (cond
-      (some #(= % file-mime-type) ["image/png" "image/jpeg"])
-      (if-let [img (ImageIO/read (io/file file-location))]
-        (create-captioned-static-img-resource! img resource-map file-mime-type text ratio)
-        ;; I think img being nil means the image was invalid?
-        (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
-
-      (= file-mime-type "image/gif")
-      () ; TODO
-      :else
-      (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
-
-(defn create-resource-from-uploaded-file!
-  [file-location resource-map]
-  (let [file-location-path (files/path file-location)
-        file-mime-type (files/probe-content-type file-location-path)]
-    (cond
-      (some #(= % file-mime-type) ["image/png" "image/jpeg"])
-      (if-let [img (ImageIO/read (io/file file-location))]
-        (create-resource-from-static-img! img resource-map file-mime-type)
-        ;; I think img being nil means the image was invalid?
-        (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
-
-      (= file-mime-type "image/gif")
-      (with-open [gif-is (io/input-stream file-location)]
-        (create-resource-for-gif! gif-is resource-map))
-
-      :else
-      (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
+;; (defn- verify-image-upload
+;;   [^InputStream image-stream]
+;;   true) ; TODO
 
 
-(defn- create-resource-from-gif
-  [^InputStream image-stream mime-type]
-  nil)
 
 
-(defn get-timeline
-  [{:keys [xtdb-node]}
-   {{:keys [nickname]} :path-params {:keys [user-id]} :session :keys [query-params]}]
-  ;; TODO check if the sessioned user is able to see this post.
-  (let [user-id (or (user-db/get-user-id-by-nickname xtdb-node nickname)
-                    (not-found! {:error :user-not-found :message "A user by that nickname was not found"}))
-        db-offset (or (:offset query-params) 0)
-        db-limit  (or (:limit query-params) 64)
-        direction (if (or (:reverse query-params) false)
-                    :desc
-                    :asc)
-        statuses (xt/q xtdb-node (xt/template (-> (from :mushin.db/statuses [tags created-at updated-at content xt/id {:user ~user-id}])
-                                                  (order-by {:val created-at, :dir ~direction})
-                                                  (offset ~db-offset)
-                                                  (limit ~db-limit))))]
-    (ok {:statuses statuses :user nickname :offset (+ db-offset (count statuses))})))
+;; (defn create-captioned-resources-from-uploaded-file!
+;;   [file-location resource-map {:keys [text ratio]}]
+;;   (let [file-location-path (files/path file-location)
+;;         file-mime-type (files/probe-content-type file-location-path)]
+;;     (cond
+;;       (some #(= % file-mime-type) ["image/png" "image/jpeg"])
+;;       (if-let [img (ImageIO/read (io/file file-location))]
+;;         (create-captioned-static-img-resource! img resource-map file-mime-type text ratio)
+;;         ;; I think img being nil means the image was invalid?
+;;         (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
 
-(defn get-status
-  [{:keys [xtdb-node]}
-   {{{:keys [id]} :path {:keys [get-comments]} :query} :parameters}]
-  (log/info "And " get-comments)
-  (if-let [status (db/get-status-by-id xtdb-node id)]
-    (ok (-> {:status status}
-            (merge (when-let [comments (when get-comments
-                                         (or (not-empty (db/get-comments-for-status xtdb-node '[user content xt/id] id)) []))]
-                     {:comments comments}))))
-    (not-found! {:error :status-not-found :message (str "A status with the id " id " was not found")})))
+;;       (= file-mime-type "image/gif")
+;;       () ; TODO
+;;       :else
+;;       (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
 
-(defn delete-status!
-  [{:keys [xtdb-node]}
-   {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
-  (let [session-user user-id
-        {:keys [post-owner xt/id]} (db/get-status-by-id xtdb-node '[user xt/id] id)]
-    (when-not id
-      (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"}))
-    (log/info {:event :delete-status :user user-id :status-owner post-owner})
-    (auth-utils/user-has-permissions-for! session-user post-owner)
+;; (defn create-resource-from-uploaded-file!
+;;   [file-location resource-map]
+;;   (let [file-location-path (files/path file-location)
+;;         file-mime-type (files/probe-content-type file-location-path)]
+;;     (cond
+;;       (some #(= % file-mime-type) ["image/png" "image/jpeg"])
+;;       (if-let [img (ImageIO/read (io/file file-location))]
+;;         (create-resource-from-static-img! img resource-map file-mime-type)
+;;         ;; I think img being nil means the image was invalid?
+;;         (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))
 
-    (if async?
-      (do
-        (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
-        (accepted {:message "The post has been queued for deletion"}))
-      (do
-        (xt/execute-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
-        (no-content)))))
+;;       (= file-mime-type "image/gif")
+;;       (with-open [gif-is (io/input-stream file-location)]
+;;         (create-resource-for-gif! gif-is resource-map))
 
-;; TODO this won't work until I combine the POST request for all the content types into a single call.
-(defn put-status!
-  [{:keys [xtdb-node]}
-   {{{:keys [id]} :path {:keys [content]} :body} :parameters {:keys [user-id]} :session}]
-  (let [session-user user-id
-        {:keys [post-owner xt/id]} (db/get-status-by-id xtdb-node '[user xt/id] id)]
-    (when-not post-owner
-      (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"})
-      (log/info {:event :edit-status :user user-id :status-owner post-owner :content content})
-      (auth-utils/user-has-permissions-for! session-user post-owner)
-      (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]]))))
+;;       :else
+;;       (bad-request! {:error :invalid-image-type :mime-type file-mime-type}))))
 
-(defn create-text-post!
-  [{:keys [xtdb-node]}
-   {{{:keys [text reply-to]} :body} :parameters {:keys [user-id]} :session :as req}]
-  (when-not user-id
-    (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
-  )
 
-;; TODO come back to this.
+;; (defn- create-resource-from-gif
+;;   [^InputStream image-stream mime-type]
+;;   nil)
 
-(defn create-media-status!
-  [xtdb-node user-id {:keys [tempfile filename]} text reply-to async?]
-  )
 
-(defn create-text-status!
-  [xtdb-node user-id text reply-to async?]
-  (let [{:keys [xt/id] :as new-status} (db/create-status user-id {:text text} {:reply-to reply-to})]
-    (log/info "Creating text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
-    (if async?
-      (do
-        (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
-        (accepted {:message "Your post has been queued for creation"}))
-      (do
-        (db-u/execute-tx  xtdb-node [[:put-docs :mushin.db/statuses new-status]])
-        (created (str "/statuses/" id) {:status-id id})))))
+;; (defn get-timeline
+;;   [{:keys [xtdb-node]}
+;;    {{:keys [nickname]} :path-params {:keys [user-id]} :session :keys [query-params]}]
+;;   ;; TODO check if the sessioned user is able to see this post.
+;;   (let [user-id (or (user-db/get-user-id-by-nickname xtdb-node nickname)
+;;                     (not-found! {:error :user-not-found :message "A user by that nickname was not found"}))
+;;         db-offset (or (:offset query-params) 0)
+;;         db-limit  (or (:limit query-params) 64)
+;;         direction (if (or (:reverse query-params) false)
+;;                     :desc
+;;                     :asc)
+;;         statuses (xt/q xtdb-node (xt/template (-> (from :mushin.db/statuses [tags created-at updated-at content xt/id {:user ~user-id}])
+;;                                                   (order-by {:val created-at, :dir ~direction})
+;;                                                   (offset ~db-offset)
+;;                                                   (limit ~db-limit))))]
+;;     (ok {:statuses statuses :user nickname :offset (+ db-offset (count statuses))})))
 
-;; TODO
-(defn create-status-post!
-  [{:keys [xtdb-node resource-map]}
-   {{{{:keys [text media]} :content :keys [reply-to]} :body} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
-  (prn req)
-  (when-not user-id
-    (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
-  (if media
-    (create-media-status!)
-    (create-text-status! xtdb-node user-id text reply-to async?)))
+;; (defn get-status
+;;   [{:keys [xtdb-node]}
+;;    {{{:keys [id]} :path {:keys [get-comments]} :query} :parameters}]
+;;   (log/info "And " get-comments)
+;;   (if-let [status (db/get-status-by-id xtdb-node id)]
+;;     (ok (-> {:status status}
+;;             (merge (when-let [comments (when get-comments
+;;                                          (or (not-empty (db/get-comments-for-status xtdb-node '[user content xt/id] id)) []))]
+;;                      {:comments comments}))))
+;;     (not-found! {:error :status-not-found :message (str "A status with the id " id " was not found")})))
+
+;; (defn delete-status!
+;;   [{:keys [xtdb-node]}
+;;    {{{:keys [id]} :path} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
+;;   (let [session-user user-id
+;;         {:keys [post-owner xt/id]} (db/get-status-by-id xtdb-node '[user xt/id] id)]
+;;     (when-not id
+;;       (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"}))
+;;     (log/info {:event :delete-status :user user-id :status-owner post-owner})
+;;     (auth-utils/user-has-permissions-for! session-user post-owner)
+
+;;     (if async?
+;;       (do
+;;         (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
+;;         (accepted {:message "The post has been queued for deletion"}))
+;;       (do
+;;         (xt/execute-tx xtdb-node [[:delete-docs :mushin.db/statuses id]])
+;;         (no-content)))))
+
+;; ;; TODO this won't work until I combine the POST request for all the content types into a single call.
+;; (defn put-status!
+;;   [{:keys [xtdb-node]}
+;;    {{{:keys [id]} :path {:keys [content]} :body} :parameters {:keys [user-id]} :session}]
+;;   (let [session-user user-id
+;;         {:keys [post-owner xt/id]} (db/get-status-by-id xtdb-node '[user xt/id] id)]
+;;     (when-not post-owner
+;;       (not-found! {:error :post-not-found :message "The post you were trying to delete was not found"})
+;;       (log/info {:event :edit-status :user user-id :status-owner post-owner :content content})
+;;       (auth-utils/user-has-permissions-for! session-user post-owner)
+;;       (xt/submit-tx xtdb-node [[:delete-docs :mushin.db/statuses id]]))))
+
+;; (defn create-text-post!
+;;   [{:keys [xtdb-node]}
+;;    {{{:keys [text reply-to]} :body} :parameters {:keys [user-id]} :session :as req}]
+;;   (when-not user-id
+;;     (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
+;;   )
+
+;; ;; TODO come back to this.
+
+;; (defn create-media-status!
+;;   [xtdb-node user-id {:keys [tempfile filename]} text reply-to async?]
+;;   )
+
+;; (defn create-text-status!
+;;   [xtdb-node user-id text reply-to async?]
+;;   (let [{:keys [xt/id] :as new-status} (db/create-status user-id {:text text} {:reply-to reply-to})]
+;;     (log/info "Creating text status" {:event :created-status :status-type :text :user-id user-id :content {:text text} :reply-to reply-to})
+;;     (if async?
+;;       (do
+;;         (db-u/submit-tx xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+;;         (accepted {:message "Your post has been queued for creation"}))
+;;       (do
+;;         (db-u/execute-tx  xtdb-node [[:put-docs :mushin.db/statuses new-status]])
+;;         (created (str "/statuses/" id) {:status-id id})))))
+
+;; ;; TODO
+;; (defn create-status-post!
+;;   [{:keys [xtdb-node resource-map]}
+;;    {{{{:keys [text media]} :content :keys [reply-to]} :body} :parameters {:keys [user-id]} :session :keys [mushin/async?] :as req}]
+;;   (prn req)
+;;   (when-not user-id
+;;     (unauthorized! {:error :not-logged-in :message "You are not logged in, and so have no permissions to perform this action"}))
+;;   (if media
+;;     (create-media-status!)
+;;     (create-text-status! xtdb-node user-id text reply-to async?)))
