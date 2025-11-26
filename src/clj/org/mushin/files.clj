@@ -1,13 +1,20 @@
 (ns org.mushin.files
+  (:require [clojure.java.io :as io])
   (:import [java.nio.file CopyOption Files Path Paths LinkOption]
            [java.nio.file.attribute FileAttribute]
            [java.nio.charset StandardCharsets]
            [java.io File OutputStream InputStream]
-           [java.net URI]))
+           [java.net URI]
+           [org.apache.tika.metadata Metadata]
+           [org.apache.tika.detect Detector]
+           [org.apache.tika.config TikaConfig]
+           [org.apache.tika.io TikaInputStream]))
 
 (def charset-utf8 StandardCharsets/UTF_8)
 
 (def tmp-dir (System/getProperty "java.io.tmpdir"))
+
+(def ^:private tika (TikaConfig.))
 
 (defn sanitize-file
   [file]
@@ -35,6 +42,53 @@
   ^Path
   [^String base & parts]
   (Paths/get base (into-array String parts)))
+
+(defn coerce-to-file
+  ^File
+  [p]
+  (cond
+    (instance? File p)
+    p
+
+    (string? p)
+    (File. ^String p)
+
+    (instance? Path p)
+    (.toFile ^Path p)
+
+    (instance? URI p)
+    (let [u ^URI p]
+      (if (= (.getScheme u) "file")
+        (File. u)
+        (throw (ex-info "only file:// is supported" {:uri u}))))
+
+    :else (throw (ex-info "unsupported path type" {:obj p
+                                                   :type (class p)}))))
+
+(defn coerce-to-path
+  ^Path
+  [p]
+  (cond
+    (instance? Path p)
+    p
+
+    (string? p)
+    (path p)
+
+    (instance? File p)
+    (.toPath ^File p)
+
+    (instance? URI p)
+    (let [u ^URI p]
+      (if (= (.getScheme u) "file")
+        (Path/of u)
+        (throw (ex-info "only file:// is supported" {:uri u}))))
+    :else (throw (ex-info "unsupported path type" {:obj p
+                                                   :type (class p)}))))
+
+(defn sanitize-path
+  [p]
+  (path (str p)))
 
 (defn to-real-path
   [^Path p & options]
@@ -113,6 +167,14 @@
   [file-path]
   (Files/probeContentType (path (str file-path))))
 
+(defn detect-content-type
+  [file]
+  (str (with-open [stream
+                   (if (instance? InputStream file)
+                     (TikaInputStream/get ^InputStream file)
+                     (TikaInputStream/get ^Path (coerce-to-path file)))]
+         (-> (.getDetector tika)
+             (.detect stream (Metadata.))))))
 
 (defn create-temp-file
   "Create a temp file.
@@ -222,6 +284,11 @@
   [^Path path & options]
   (Files/exists path (into-array LinkOption options)))
 
+(defn get-file-name
+  ^String
+  [^Path p]
+  (.getFileName p))
+
 (defn not-exists
   "Tests whether a file does not exist.
 
@@ -234,3 +301,6 @@
   [^Path path & options]
   (Files/notExists path (into-array LinkOption options)))
 
+(defn is-child-of
+  [file dir]
+  (exists (path-combine (coerce-to-path dir) (get-file-name (coerce-to-path file)))))

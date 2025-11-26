@@ -19,13 +19,13 @@
 
   # Arguments
   - `img`: The image to store.
-  - `resource-map`: The resource provider to store the image.
   - `mime-type`: The MIME type of the resulting stored image.
+  - `resource-map`: The resource provider to store the image.
 
   # Return
   A URI to the stored image. The resource name will be based off the SHA-256 sum
   of the image's sRGB content."
-  [^BufferedImage img resource-map mime-type]
+  [^BufferedImage img mime-type resource-map]
   (let [mime-ext (mime/mime-type-to-extensions mime-type)
         resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)]
     (if (res/exists? resource-map resource-name)
@@ -45,18 +45,18 @@
 
   # Arguments
   - `img`: The image to store.
-  - `resource-map`: The resource provider to store the image.
   - `mime-type`: The MIME type of the resulting stored image.
+  - `resource-map`: The resource provider to store the image.
 
   # Return
   A URI to the stored image. The resource name will be based off the SHA-256 sum
   of the image's sRGB content."
-  [img-path resource-map]
+  [img-path mime-type resource-map]
   (create-resource-from-buffered-image! (img/->buffered-image (str img-path))
-                                        resource-map
-                                        (files/probe-content-type img-path)))
+                                        mime-type
+                                        resource-map))
 
-(defn create-captioned-static-img-resource!
+(defn create-captioned-resource-from-buffered-image!
   [^BufferedImage img resource-map mime-type text ratio]
   (let [mime-ext (mime/mime-type-to-extensions mime-type)
         resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)
@@ -83,7 +83,7 @@
                                         (caption/caption-svg width height
                                                        (files/path->uri output-file-path) text caption-pixel-height)
                                         width full-img-height)
-                                       resource-map mime-type)
+                                       mime-type resource-map)
 
             caption-svg-name
             (let [temp-svg (files/create-temp-file)]
@@ -98,6 +98,23 @@
         {:base-img resource-name :captioned-img rendered-caption-img-name :svg-doc caption-svg-name})
       (finally
         (files/delete-if-exists output-file-path)))))
+
+(defn create-captioned-resource-from-static-image!
+
+  "Create and store an image as a resource.
+
+  # Arguments
+  - `img`: The image to store.
+  - `resource-map`: The resource provider to store the image.
+  - `mime-type`: The MIME type of the resulting stored image.
+
+  # Return
+  A URI to the stored image. The resource name will be based off the SHA-256 sum
+  of the image's sRGB content."
+  [img-path resource-map mime-type text ratio]
+  (create-resource-from-buffered-image! (img/->buffered-image (str img-path))
+                                        mime-type
+                                        resource-map))
 
 (defn create-resource-for-gif!
   [^InputStream gif-stream resource-map]

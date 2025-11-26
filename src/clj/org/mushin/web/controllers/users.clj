@@ -2,6 +2,7 @@
   (:require [org.mushin.db.users :as db-users]
             [ring.util.http-response :refer [conflict! created ok]]
             [org.mushin.resources.resource-map :as res]
+            [org.mushin.mime :as mime]
             [org.mushin.db.media :as media]
             [clojure.tools.logging :as log]
             [org.mushin.db.util :as db]))
@@ -22,10 +23,15 @@
       :or {bio ""
            display-name ""}} :body} :parameters :keys [mushin/async?]}]
   (let [avatar (if avatar
-                 (media/create-resource-from-static-image! (:tmpfile avatar) resource-map)
+                 (media/create-resource-from-static-image! (:tmpfile avatar)
+                                                           ;(if (mime/is-supported-image-type? ))
+                                                           "image/png"
+                                                           resource-map)
                  (res/to-url resource-map "default-avatar.png"))
-        banner (if avatar
-                 (media/create-resource-from-static-image! (:tmpfile banner) resource-map)
+        banner (if banner
+                 (media/create-resource-from-static-image! (:tmpfile banner)
+                                                           "image/png"
+                                                           resource-map)
                  (res/to-url resource-map "default-banner.png"))]
     (when (db-users/check-user-nickname-exists? xtdb-node nickname)
       (log/info {:event :creating-user-failed :nickname nickname :reason :user-already-exists})

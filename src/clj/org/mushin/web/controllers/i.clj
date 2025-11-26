@@ -3,6 +3,8 @@
                                              no-content unauthorized! conflict! ok]]
             [org.mushin.db.authorization :as db-authz]
             [malli.experimental.time :as mallt]
+            [org.mushin.db.media :as media]
+            [org.mushin.files :as files]
             [clojure.tools.logging :as log]
             [org.mushin.db.likes :as likes]
             [xtdb.api :as xt]
@@ -53,13 +55,25 @@
                               [:map [:from any-timestamp]]
                               [:map [:to any-timestamp]]]]])
 
+(def statuses-body-schema
+  "Schema for creating statuses."
+  [:map
+   [:multi {:dispatch :type}
+    [:microblog
+     [:map
+      [:media {:description "mulitpart file" :optional true} :any]
+      [:text  {:optional true} :string]]]
+    [:meme
+     [:map
+      [:media {:description "mulitpart file"} :any]
+      [:text :string]]]]])
+
 
 (def bitemporal-collection-query-schema
   "Schema for bitemporal queries on collections."
   [:or
    bitemporal-query-schema
    (collection-query-schema)])
-
 
 (def delete-me-body-schema
   [:map
@@ -76,7 +90,7 @@
     (ok user-doc)
     (not-found! {:error :user-not-found :message "The user you tried to find was not found."})))
 
-(defn get-roles
+(defn get-roles ; TODO
   [{:keys [xtdb-node]}
    {{:keys [user-id]} :session}]
   (db-authz/actor-roles xtdb-node user-id))
@@ -99,13 +113,35 @@
         (db/execute-tx xtdb-node (users/delete-user-tx user-id))
         (no-content)))))
 
-(defn create-status
-  ;; TODO
-  [{:keys [xtdb-node]}
-   {{{:keys []} :body} :parameters
+(defn create-microblog!
+  [xtdb-node async? {:keys [media text]}]
+  )
+
+(defn create-meme!
+  [xtdb-node async? resource-map {{:keys [tempfile]} :media
+                                  :keys [text]}]
+  (if-not (files/is-child-of tempfile files/tmp-dir)
+    (bad-request! {:error :invalid-upload
+                   :message "Something about the upload is wrong"})
+    (try
+      (let [content-type (files/detect-content-type tempfile)]
+        (case content-type
+          ("image/jpeg" "image/png")
+          (media/create-captioned-resource-from-static-image! tempfile resource-map content-type text)
+            (bad-request! {:error :invalid-content-type
+                           :message "The content type isn't supported"
+                           :content-type content-type})))
+      (finally
+        (files/delete-if-exists tempfile)))))
+
+(defn create-status!
+  [{:keys [xtdb-node resource-map]}
+   {{{:keys [type] :as body} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
-  )
+  (case type
+    :microblog (create-microblog! xtdb-node async? body)
+    :meme (create-meme! xtdb-node resource-map async? body)))
 
 (defn get-timeline
   [{:keys [xtdb-node]}
