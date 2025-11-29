@@ -48,7 +48,6 @@
   [e]
   (and (vector? e) (keyword? (first e))))
 
-; TODO then remove all nils
 (defn sanitize-hiccough
   [hiccough whitelist ids-and-classes?]
   (postwalk
@@ -56,24 +55,31 @@
      (cond
        (or (map? e)
            (keyword? e)
+           (number? e)
+           (boolean? e)
            (string? e))
        e
 
        (tag? e)
-       (when-let [[tag attrs? children]
-                  (let [[tag & attrs-and-children] e]
-                    (if (map? (first attrs-and-children))
-                      [tag (first attrs-and-children) (vec (rest attrs-and-children))]
-                      [tag nil (vec attrs-and-children)]))]
-         (when (contains? whitelist tag)
-           (let [just-tag (keyword (first (str/split (name tag) #"[.]|[#]")))
-                 attrs (select-keys attrs? (whitelist just-tag))]
+       (let [[tag attrs? children]
+             (let [[tag & attrs-and-children] e]
+               (if (map? (first attrs-and-children))
+                 [tag (first attrs-and-children) (vec (rest attrs-and-children))]
+                 [tag nil (vec attrs-and-children)]))
+             just-tag (keyword (first (str/split (name tag) #"[.]|[#]")))]
+         (when-let [verifiers (whitelist just-tag)]
+           (let [attrs (into {}
+                             (filter
+                              (fn [[attr v]] (when-let [verifier (verifiers attr)]
+                                            (verifier v))))
+                             attrs?)
+                 children (->> children (remove nil?) vec)]
              (cond-> [(if ids-and-classes? tag just-tag)]
                (not-empty attrs) (conj attrs)
                (not-empty children) (into children)))))
 
        :else
-       (throw (ex-info "Invalid hiccough syntax" {}))))
+       (throw (ex-info "Invalid hiccough syntax" {:at e}))))
    hiccough))
 
 (defn hiccough->svg!
