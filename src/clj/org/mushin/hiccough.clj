@@ -1,41 +1,34 @@
 (ns org.mushin.hiccough
-  (:require [clojure.walk :as walk]
-            [clojure.string :as str]
-            [org.mushin.multimedia.svg :refer [set-attr! create-elem
-                                               create-elem-ns set-attr-ns!
-                                               add-child! create-text-node]])
-  (:import [org.w3c.dom.svg SVGDocument]
-           [org.w3c.dom Node]))
+  (:require [org.mushin.acc :refer [postwalk mapv-acc]]
+            [clojure.string :as cstr])
+  (:import [java.util.regex Matcher]))
 
-(defn- kebab-case->camel-case
-  "Convert a keyword in kebab-case into a keyword with camelCase.
+(def mentions-regex
+  "Regex for matching mentions (e.g. @user)."
+  #"(?i)(?:\B@[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*\")")
 
-  # Arguments
-    - `k`: The keyword to convert to camelCase.
+;; TODO uncomment this when federation is implemented.
+;(def mentions-regex
+ ;"Regex for matching mentions (e.g. @user@domain.tld or @user)."
+;  #"(?i)(?:\B@[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*\")(@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\]))?")
 
-  # Return value
-  The keyword `k` with all kebab-case instances converted to camelCase."
-  [k]
-  (let [words (str/split (name k) #"-")]
-    (->> (map str/capitalize (rest words))
-         (apply str (first words))
-         keyword)))
-
-
-(defn- postwalk
-  "A version of postwalk that does not recurse into maps (note that `f` will still be applied
-  to the map itself, just not its key value pairs).
-
-  # Arguments
-    - `f`: A function applied to each element.
-    - `form`: The form to process
-  # Return value
-  The result of `f` applied to the parent node of `form`."
-  [f form]
-  (walk/walk
-   (if (map? form)
-     identity
-     (partial postwalk f)) f form))
+(defn- split-by-mentions
+  "Split a string into a vector of strings and maps based off of @ mentions."
+  [s]
+  (let [matcher ^Matcher (re-matcher mentions-regex s)]
+    (loop [result []
+           prev-end 0]
+      (if-not (.find matcher)
+        (if-let [tail (not-empty (subs s prev-end))]
+          (conj result tail)
+          result)
+        (recur (into result
+                     (conj (if-let [before-match (not-empty (subs s prev-end (.start matcher)))]
+                             [before-match]
+                             [])
+                           {:match :ap
+                            :target (subs s (.start matcher) (.end matcher))}))
+               (.end matcher))))))
 
 (defn- tag?
   "Determine if `e` is a SVG tag in hiccough syntax.
@@ -49,16 +42,44 @@
   (and (vector? e) (keyword? (first e))))
 
 (defn sanitize-hiccough
-  [hiccough whitelist ids-and-classes?]
+  "Sanitize hiccough syntax into valid hiccup. Filters elements and attributes based off
+  a whitelist. Convert @ mentions into links. Returns tuple of information relating to
+  the hiccup and sanitized hiccup.
+
+  # Arguments
+  - `hiccough`: Hiccough syntax to sanitize
+  - `whitelist`: A function that takes 1 argument: a hiccup tag (e.g. `:p`) and returns
+  `nil` if the tag is not whitelisted, else returns a function. The returned function
+  takes 1 argument: a hiccup attribute (e.g. `:href`) and returns nil if the attribute
+  is not whitelisted, else returns a sanitization function that takes 1 argument:
+  an attribute value, and returns returns `nil` if the attribute should be removed,
+  else returns a sanitized value.
+  - `ids-and-classes?`: True if hiccough should allow hiccup style ids and classes
+  (e.g. `:p#id.class`), false if not. If false: all ids and classes are removed.
+  - `account-name-to-link:` A function of one argument: an account nickname or a
+  fully qualified name (e.g. `nickname` or `nickname@domain.org`), and returns a URI
+  to the account resource.
+
+  # Return
+  Returns a tuple. In the first column is extra information about the hiccough.
+  The sanitized hiccough is in the second column.
+
+  The extra information is of the following form:
+  | Key         | Type                  | Value                                                                                              |
+  |:------------|:----------------------|:---------------------------------------------------------------------------------------------------|
+  | `:mentions` | Map[string -> string] | Map where each key is a nickname or fully qualified name, and each value is a URI to that resource |
+  |             |                       |                                                                                                    |
+  "
+  [hiccough whitelist ids-and-classes? account-name-to-link]
   (postwalk
-   (fn [e]
+   (fn [{:keys [mentions] :as acc} e]
      (cond
        (or (map? e)
            (keyword? e)
            (number? e)
            (boolean? e)
            (string? e))
-       e
+       [acc e]
 
        (tag? e)
        (let [[tag attrs? children]
@@ -66,99 +87,51 @@
                (if (map? (first attrs-and-children))
                  [tag (first attrs-and-children) (vec (rest attrs-and-children))]
                  [tag nil (vec attrs-and-children)]))
-             just-tag (keyword (first (str/split (name tag) #"[.]|[#]")))]
-         (when-let [verifiers (whitelist just-tag)]
-           (let [attrs (into {}
-                             (filter
-                              (fn [[attr v]] (when-let [verifier (verifiers attr)]
-                                            (verifier v))))
-                             attrs?)
-                 children (->> children (remove nil?) vec)]
-             (cond-> [(if ids-and-classes? tag just-tag)]
-               (not-empty attrs) (conj attrs)
-               (not-empty children) (into children)))))
+
+             ;; Process child nodes: convert @mentions into links, etc..
+             [mentions children]
+             (reduce
+              (fn [[mentions new-children] child]
+                (cond
+                  (string? child)
+                  (let [[mentions processed-text]
+                        ;; Mentions->links.
+                        (mapv-acc
+                         (fn [mentions msg-part]
+                           (cond
+                             (string? msg-part)
+                             [mentions msg-part]
+
+                             (map? msg-part)
+                             (let [{:keys [target]} msg-part
+                                   acc-link (or (get mentions target)
+                                                (account-name-to-link target))]
+                               [(assoc mentions target acc-link)
+                                [:a {:href acc-link} target]])))
+                         mentions
+                         (split-by-mentions child))]
+                    [mentions (into new-children processed-text)])
+
+                  :else
+                  [mentions (conj new-children child)]))
+              [mentions []]
+              children)
+
+             just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))]
+         [(assoc acc :mentions mentions) ; Update the accumulator.
+          (when-let [verifiers (whitelist just-tag)]
+            (let [attrs (into {}
+                              (filter
+                               (fn [[attr v]] (when-let [verifier (verifiers attr)]
+                                                (verifier v))))
+                              attrs?)
+                  children (->> children (remove nil?) vec)]
+              (cond-> [(if ids-and-classes? tag just-tag)]
+                (not-empty attrs) (conj attrs)
+                (not-empty children) (into children))))])
 
        :else
        (throw (ex-info "Invalid hiccough syntax" {:at e}))))
+   {:mentions {}}
    hiccough))
-
-(defn hiccough->svg!
-  "Convert SVG hiccough DSL syntax into a SVGDocument. It places
-  its document tags into the provided coument.
-
-  `hiccough` is just `hiccup` syntax.
-
-  # Arguments
-    - `doc`: SVGDocument to place the tags into.
-    - `hiccough`: DSL syntax.
-
-  # Return value
-  The SVGDocument."
-  ^SVGDocument
-  [^SVGDocument doc hiccough]
-  (postwalk
-   (fn [e]
-     (cond
-       (map? e)
-       (walk/postwalk (fn [x] (if (map? x) (update-keys x kebab-case->camel-case) x))  e)
-
-       (tag? e)
-       ;; Create the tag and add children, attributes.
-       (when-let [[tag attrs? children]
-                  (let [[tag & attrs-and-children] e]
-                    (when tag
-                      (if (map? (first attrs-and-children))
-                        [tag (first attrs-and-children) (vec (rest attrs-and-children))]
-                        [tag nil (vec attrs-and-children)])))]
-
-         (let [elem
-               (let [tag-str (name tag)
-                     tag-ns (namespace tag)
-                     [tag-name & tag-parts] (str/split tag-str #"[.]|[#]")
-                     [id classes] (if (str/includes? tag-str "#")
-                                    [(first tag-parts) (str/join " " (rest tag-parts))]
-                                    [nil (str/join " " tag-parts)])
-                     elem (if (= tag :svg)
-                            (.getDocumentElement doc)
-                            (if tag-ns
-                              (create-elem-ns doc tag-ns tag-name)
-                              (create-elem doc tag-name)))]
-                 ;; Destructure the class name into tag name, namespace, classes, id.
-                 (when id
-                   (set-attr! elem "id" id))
-                 (when-not (str/blank? classes)
-                   (set-attr! elem "class" classes))
-                 elem)]
-
-           (when attrs?
-             ;; Add attributes to the tag.
-             (doseq [[k v] attrs?]
-               (let [tag-namespace (namespace k)
-                     tag-name (name k)
-                     v (str v)]
-                 (if tag-namespace
-                   (set-attr-ns! elem tag-namespace tag-name v)
-                   (set-attr! elem tag-name v)))))
-
-           (doseq [node children]
-             ;; Add child nodes.
-             (cond
-               ;; Syntax sugar for href tags.
-               (or (= tag :image)
-                   (= tag :a)
-                   (= tag :fe-image))
-               (set-attr! elem "href" (str node))
-
-               ;; Add element.
-               (instance? Node node)
-               (add-child! elem node)
-
-               :else
-               (add-child! elem (create-text-node doc (str node)))))
-           elem))
-
-       :else
-       e))
-   hiccough)
-  doc)
 
