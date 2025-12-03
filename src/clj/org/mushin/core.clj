@@ -18,6 +18,7 @@
    [org.mushin.resources]
    [org.mushin.web.sign]
    [org.mushin.db.tasks]
+   [org.mushin.web.config]
 
     ;; Routes
    [org.mushin.web.routes.api])

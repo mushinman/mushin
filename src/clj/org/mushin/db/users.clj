@@ -57,6 +57,7 @@
     [:display-name            :string]
     [:avatar                  'uri?]
     [:banner                  'uri?]
+    [:ap-id                   'uri?]
     [:password-hash           :string]
     [:bio                     :string]
     [:state                   user-states-schema]
@@ -99,11 +100,12 @@
       first
       :xt/id))
 
-(defn create-user [nickname password avatar-uri banner-uri bio display-name & email]
+(defn create-user [nickname password ap-id avatar-uri banner-uri bio display-name & email]
   (let [now (jt/zoned-date-time)]
     (cond-> (merge
              {:xt/id (uuid/v7)
               :nickname nickname
+              :ap-id ap-id
               :display-name display-name
               :local? true
               :state {:type :ok}

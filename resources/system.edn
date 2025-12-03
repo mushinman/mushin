@@ -50,7 +50,10 @@
   :resource-map #ig/ref :org.mushin.resources/provider
   :mushin/jwks      #ig/ref :org.mushin.web.sign/jwk}
 
- ;:org.mushin/host "localhost"
+ :org.mushin.web.config/endpoint
+ {:host "localhost"
+  :scheme "https"
+  :port 443}
 
  :router/routes
  {:routes #ig/refset :reitit/routes}
@@ -67,8 +70,9 @@
 
  :org.mushin.resources/provider
  {:local
-  {:path "/var/www/mushin"
-   :base-url "http://localhost"}} ; HERE: Change this.
+  {:path "C:\\inetpub\\mushin_media"
+   ;; Could be a string, or {:host, :scheme, :port}
+   :endpoint "http://localhost"}} ; HERE: Change this.
 
  ;; Database cleanup tasks.
  :org.mushin.db.tasks/tasks

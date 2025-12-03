@@ -6,6 +6,7 @@
            ;; Routing
            metosin/reitit                  {:mvn/version "0.9.1"
                                             :exclusions [metonsin/malli]}
+           org.mushin/shim {:local/root "shim/lib/build/libs/lib.jar"}
 
            ;; Ring
            metosin/ring-http-response      {:mvn/version "0.9.3"}
@@ -20,7 +21,6 @@
            net.logstash.logback/logstash-logback-encoder {:mvn/version "7.4"}
            ring-logger/ring-logger {:mvn/version "1.1.1"}
 
-           org.apache.tika/tika-core {:mvn/version "3.2.3"}
 
            ;; Data coercion
            luminus-transit/luminus-transit {:mvn/version "0.1.6"
@@ -28,7 +28,10 @@
            metosin/muuntaja                {:mvn/version "0.6.8"}
            metosin/muuntaja-form           {:mvn/version "0.6.8"}
 
+           ;; Apache
            org.apache.commons/commons-math3 {:mvn/version "3.6.1"}
+           org.apache.tika/tika-core {:mvn/version "3.2.3"}
+           commons-validator/commons-validator {:mvn/version "1.10.1"}
 
            ;; Image codec transcoding.
            io.sf.carte/echosvg-all {:mvn/version "2.2"}

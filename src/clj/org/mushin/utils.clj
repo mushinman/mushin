@@ -1,4 +1,9 @@
-(ns org.mushin.utils)
+(ns org.mushin.utils
+  (:import [java.net URI]))
+
+(defn to-java-uri
+  [uri]
+  (URI. (str uri)))
 
 (defn disjoint?
   "Are set1 and set2 disjoint?"

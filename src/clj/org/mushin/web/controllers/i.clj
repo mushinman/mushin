@@ -3,6 +3,8 @@
                                              no-content unauthorized! conflict! ok]]
             [org.mushin.db.authorization :as db-authz]
             [malli.experimental.time :as mallt]
+            [org.mushin.hiccough :as h]
+            [lambdaisland.uri :refer [join]]
             [org.mushin.db.media :as media]
             [org.mushin.files :as files]
             [clojure.tools.logging :as log]
@@ -12,7 +14,8 @@
             [org.mushin.db.timeline :as db-timeline]
             [org.mushin.db.relationship :as rel]
             [org.mushin.db.users :as users]
-            [java-time.api :as time]))
+            [java-time.api :as time])
+  (:import [java.net URI]))
 
 (def any-timestamp
   "A schema for any date object that xtdb supports."
@@ -113,9 +116,39 @@
         (db/execute-tx xtdb-node (users/delete-user-tx user-id))
         (no-content)))))
 
+(defn href-verifier
+  [href]
+  (try
+    (and
+     (not (re-matches #"(?i)^\s*(javascript|data)\:.*" href))
+     (URI. href))
+    (catch Throwable _
+      nil)))
+
+(defn- href-tag-verifier
+  "Return href verifier if the attr is :href, else nil."
+  [attr]
+  (when (= attr :href)
+    href-verifier))
+
+(defn- microblog-verifier-map
+  [tag]
+  (case tag
+    (:a :img) href-tag-verifier
+
+    ;; Tags with no supported attributes.
+    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
+    {}
+
+    ;; Unrecognized tag.
+    nil))
+
 (defn create-microblog!
-  [xtdb-node async? {:keys [media text]}]
-  )
+  [xtdb-node async? host {:keys [media blog]}]
+  (h/sanitize-hiccough blog microblog-verifier-map false
+                       (fn [user-name]
+                         (when-let [user (users/get-user-by-id xtdb-node user-name)]
+                           (:ap-id user)))))
 
 (defn create-meme!
   [xtdb-node async? resource-map {{:keys [tempfile]} :media
@@ -135,12 +168,12 @@
         (files/delete-if-exists tempfile)))))
 
 (defn create-status!
-  [{:keys [xtdb-node resource-map]}
+  [{:keys [xtdb-node resource-map host]}
    {{{:keys [type] :as body} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (case type
-    :microblog (create-microblog! xtdb-node async? body)
+    :microblog (create-microblog! xtdb-node async? body host)
     :meme (create-meme! xtdb-node resource-map async? body)))
 
 (defn get-timeline
