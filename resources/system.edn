@@ -79,7 +79,8 @@
   :durable? true}
 
  :org.mushin.web.sign/jwk
- {}
+ {:priv "C:\\mushin_key_priv.pem"
+  :pub "C:\\mushin_key.pem"}
 
  ;; resources/system.edn
  :db.xtdb/node

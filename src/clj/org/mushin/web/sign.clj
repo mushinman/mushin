@@ -4,10 +4,10 @@
             [clojure.tools.logging :as log]
             [kit.ig-utils :as ig-utils]))
 
-(defmethod ig/init-key :org.mushin.web.sign/jwk [_ config]
+(defmethod ig/init-key :org.mushin.web.sign/jwk [_ {:keys [priv pub]}]
   (log/info "Initializing the JWK token setup...")
-  {:priv (sign-keys/private-key "/home/mm/mushin_key.pem")
-   :pub (sign-keys/public-key "/home/mm/mushin_key_pub.pem")})
+  {:priv (sign-keys/private-key priv)
+   :pub (sign-keys/public-key pub)})
 
 
 (defmethod ig/suspend-key! :org.mushin.web.sign/jwk [_ _]
