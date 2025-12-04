@@ -7,7 +7,8 @@
 
 (defmethod ig/init-key :org.mushin.web.config/endpoint [_ config]
   (log/info "Setting up web configuration" config)
-  (uri config))
+  (merge (uri "")
+         config))
 
 (defmethod ig/suspend-key! :org.mushin.web/endpoint [_ _])
 

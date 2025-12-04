@@ -12,7 +12,7 @@
 
 (def typical-user
   "A typical user."
-  (db-users/create-user "ichijo" ""))
+  (db-users/create-local-user "ichijo" ""))
 
 (def typical-status
   "A typical status"

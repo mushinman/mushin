@@ -2,7 +2,7 @@
   (:require [org.mushin.db.users :as db-users]
             [ring.util.http-response :refer [conflict! created ok]]
             [org.mushin.resources.resource-map :as res]
-            [lambdaisland.uri :refer [join]]
+            [lambdaisland.uri :refer [join uri]]
             [org.mushin.mime :as mime]
             [org.mushin.db.media :as media]
             [org.mushin.utils :refer [to-java-uri]]
@@ -35,13 +35,13 @@
                                                            "image/png"
                                                            resource-map)
                  (res/to-url resource-map "default-banner.png"))
-        user-url (to-java-uri (join endpoint (str "/@" nickname)))]
+        user-url (join endpoint (str "/@" nickname))]
     (when (db-users/check-user-nickname-exists? xtdb-node nickname)
       (log/info {:event :creating-user-failed :nickname nickname :reason :user-already-exists})
       (conflict! {:error :user-already-exists :message "A user by that nickname already exists"}))
     (log/info {:event :creating-user :nickname nickname})
     (let [{:keys [xt/id] :as doc}
-          (db-users/create-user nickname password
+          (db-users/create-local-user nickname password
                                 user-url
                                 avatar banner
                                 bio display-name)]

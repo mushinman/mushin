@@ -13,7 +13,7 @@
 
 (def typical-user
   "A typical user."
-  (db-users/create-user "ichijo" ""))
+  (db-users/create-local-user "ichijo" ""))
 
 (def typical-status
   "A typical status"
@@ -26,7 +26,7 @@
 (deftest delete-user-tx:deletes-user?
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node
-          user2 (db-users/create-user "doshin" "")
+          user2 (db-users/create-local-user "doshin" "")
           user1-id (:xt/id typical-user)
           user2-id (:xt/id user2)]
       (xt/execute-tx node (into [[:put-docs :mushin.db/users typical-user]
@@ -62,7 +62,7 @@
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node]
       (db/execute-tx node [[:put-docs :mushin.db/users
-                            (db-users/create-user "hikaru" "")]])
+                            (db-users/create-local-user "hikaru" "")]])
       (is (uuid? (db-users/get-user-id-by-nickname node "hikaru"))
           "User should exist"))))
 
@@ -70,8 +70,8 @@
 (deftest can-user-view?-test
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node
-          user1 (db-users/create-user "ichijo" "")
-          user2 (db-users/create-user "doshin" "")
+          user1 (db-users/create-local-user "ichijo" "")
+          user2 (db-users/create-local-user "doshin" "")
           user1-id (:xt/id user1)
           user2-id (:xt/id user2)]
       (xt/execute-tx node (into [[:put-docs :mushin.db/users user1]
@@ -83,7 +83,7 @@
 (deftest user-nickname-duplicate-fails?
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node
-          user1 (db-users/create-user "ichijo" "")]
+          user1 (db-users/create-local-user "ichijo" "")]
       (xt/execute-tx node (db-users/insert-user-tx user1))
       (is (thrown? Conflict (xt/execute-tx node (db-users/insert-user-tx user1)))
           "Duplicate usernames should result in an exception."))))
@@ -92,8 +92,8 @@
 (deftest block-overrides
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node
-          user1 (db-users/create-user "ichijo" "")
-          user2 (db-users/create-user "doshin" "")
+          user1 (db-users/create-local-user "ichijo" "")
+          user2 (db-users/create-local-user "doshin" "")
           user1-id (:xt/id user1)
           user2-id (:xt/id user2)]
       (xt/execute-tx node (into [[:put-docs :mushin.db/users user1]

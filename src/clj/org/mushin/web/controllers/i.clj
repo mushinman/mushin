@@ -144,7 +144,7 @@
     nil))
 
 (defn create-microblog!
-  [xtdb-node async? host {:keys [media blog]}]
+  [xtdb-node async? endpoint {:keys [media blog]}]
   (h/sanitize-hiccough blog microblog-verifier-map false
                        (fn [user-name]
                          (when-let [user (users/get-user-by-id xtdb-node user-name)]
@@ -168,12 +168,12 @@
         (files/delete-if-exists tempfile)))))
 
 (defn create-status!
-  [{:keys [xtdb-node resource-map host]}
+  [{:keys [xtdb-node resource-map endpoint]}
    {{{:keys [type] :as body} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (case type
-    :microblog (create-microblog! xtdb-node async? body host)
+    :microblog (create-microblog! xtdb-node async? body endpoint)
     :meme (create-meme! xtdb-node resource-map async? body)))
 
 (defn get-timeline

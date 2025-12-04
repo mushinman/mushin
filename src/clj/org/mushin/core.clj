@@ -5,7 +5,7 @@
    [org.mushin.config :as config]
    [org.mushin.env :refer [defaults]]
 
-    ;; Edges
+   ;; Edges
    [kit.edge.cache.redis] 
    [kit.edge.http.hato] 
    [kit.edge.scheduling.quartz] 
@@ -20,7 +20,7 @@
    [org.mushin.db.tasks]
    [org.mushin.web.config]
 
-    ;; Routes
+   ;; Routes
    [org.mushin.web.routes.api])
   (:gen-class))
 

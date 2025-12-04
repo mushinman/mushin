@@ -1,5 +1,6 @@
 (ns org.mushin.resources.file-resource-map
   (:require [org.mushin.files :as files]
+            [clojure.string :as cstr]
             [org.mushin.resources.resource-map :as interface]
             [lambdaisland.uri :refer [join]]
             [clojure.java.io :as io])
@@ -10,19 +11,21 @@
   "For a given base file path to the resource folder and the name of the resource
   generate a unique file path for the resource.
   # Arguments:
-  - `base`: A java Path to the resources folder.
+  - `base`: (Optional) A java Path to the resources folder.
   - `resource-name`: The name of the resource.
 
   # Return value
-  A unique java Path for the provided resource name."
+  A unique java Path for the provided resource name. If `base` is not provided
+  the path is only partial."
   ^Path
-  [^Path base resource-name]
-  (let [name-length (count resource-name)]
-    (files/path-combine base
-                        (if (> name-length 1) (subs resource-name 0 2) (subs resource-name 0 1))
-                        (if (> name-length 3) (subs resource-name 2 4) "")
-                        (if (> name-length 5) (subs resource-name 4 6) "")
-                        resource-name)))
+  ([^Path base resource-name]
+   (files/path-combine base (get-resource-file-path resource-name)))
+  ([resource-name]
+   (let [name-length (count resource-name)]
+     (files/path (if (> name-length 1) (subs resource-name 0 2) (subs resource-name 0 1))
+                 (if (> name-length 3) (subs resource-name 2 4) "")
+                 (if (> name-length 5) (subs resource-name 4 6) "")
+                 resource-name))))
 
 
 (defrecord FileSystemResourceMap
@@ -48,7 +51,6 @@
   (exists? [_ name]
     (files/exists (get-resource-file-path base-path name)))
   (to-url [_ name]
-    (when (interface/exists? _ name)
-      (join resource-map-url-base (get-resource-file-path base-path name))))
+    (join resource-map-url-base (cstr/join "/" (files/path-parts (get-resource-file-path name)))))
   (open [_ name]
     (io/input-stream (str (get-resource-file-path base-path name)))))

@@ -7,7 +7,8 @@
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
             [org.mushin.db.statuses :as statuses]
-            [malli.experimental.time :as mallt]))
+            [malli.experimental.time :as mallt]
+            [org.mushin.utils :refer [to-java-uri]]))
 
 (def nickname-regex "Regular that describes a valid nickname" #"\w+")
 
@@ -55,9 +56,9 @@
     [:log-counter             :int]
     [:nickname                :string]
     [:display-name            :string]
-    [:avatar                  'uri?]
-    [:banner                  'uri?]
-    [:ap-id                   'uri?]
+    [:avatar {:optional true} 'uri?]
+    [:banner {:optional true} 'uri?]
+    [:ap-id {:optional true}  'uri?]
     [:password-hash           :string]
     [:bio                     :string]
     [:state                   user-states-schema]
@@ -100,18 +101,18 @@
       first
       :xt/id))
 
-(defn create-user [nickname password ap-id avatar-uri banner-uri bio display-name & email]
+(defn create-local-user [nickname password ap-id avatar-uri banner-uri bio display-name & email]
   (let [now (jt/zoned-date-time)]
     (cond-> (merge
              {:xt/id (uuid/v7)
               :nickname nickname
-              :ap-id ap-id
+              :ap-id (to-java-uri ap-id)
               :display-name display-name
               :local? true
               :state {:type :ok}
               :log-counter 0
-              :avatar avatar-uri
-              :banner banner-uri
+              :avatar (to-java-uri avatar-uri)
+              :banner (to-java-uri banner-uri)
               :bio bio
               :password-hash (crypt/hash-password password)
               :joined-at now

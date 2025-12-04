@@ -11,7 +11,7 @@
 (deftest delete-where:deletes-duplicate-rows
   (with-open [test-node (test-db/start-xtdb!)]
     (let [{:keys [node]} test-node
-          user1 (db-users/create-user "ichijo" "")
+          user1 (db-users/create-local-user "ichijo" "")
           user1-id (:xt/id user1)]
       (xt/execute-tx node [[:put-docs :mushin.db/users user1]
                            [:put-docs :mushin.db/users user1]])

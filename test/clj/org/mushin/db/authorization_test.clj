@@ -33,7 +33,7 @@
    :user.profile:view))
 
 (def konatsu "A minor user."
-  (db-users/create-user "konatsu" ""))
+  (db-users/create-local-user "konatsu" ""))
 
 (deftest compress-many-role-perms
   (is (= (second (authz/compress-roles [mod-role auditor-role reporter-role]))

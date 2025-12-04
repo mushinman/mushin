@@ -48,15 +48,16 @@
   :metrics   #ig/ref :metrics/prometheus
   :xtdb-node #ig/ref :db.xtdb/node
   :resource-map #ig/ref :org.mushin.resources/provider
+  :endpoint #ig/ref :org.mushin.web.config/endpoint
   :mushin/jwks      #ig/ref :org.mushin.web.sign/jwk}
 
  :org.mushin.web.config/endpoint
  {:host "localhost"
-  :scheme "https"
-  :port 443}
+  :scheme "http"}
 
  :router/routes
  {:routes #ig/refset :reitit/routes}
+
 
  :router/core
  {:routes #ig/ref :router/routes

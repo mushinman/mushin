@@ -1,5 +1,7 @@
 (ns org.mushin.files
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [lambdaisland.uri :refer [uri?]]
+            [clojure.core :as c])
   (:import [java.nio.file CopyOption Files Path Paths LinkOption]
            [java.nio.file.attribute FileAttribute]
            [java.nio.charset StandardCharsets]
@@ -56,11 +58,18 @@
     (instance? Path p)
     (.toFile ^Path p)
 
-    (instance? URI p)
+    ;; java.net.URI
+    (clojure.core/uri? p)
     (let [u ^URI p]
       (if (= (.getScheme u) "file")
         (File. u)
         (throw (ex-info "only file:// is supported" {:uri u}))))
+
+    ;; Lambdaisland uri.
+    (uri? p)
+    (if (= (p :scheme) "file")
+      (File. (URI. (str p)))
+      (throw (ex-info "only file:// is supported" {:uri p})))
 
     :else (throw (ex-info "unsupported path type" {:obj p
                                                    :type (class p)}))))
@@ -78,11 +87,20 @@
     (instance? File p)
     (.toPath ^File p)
 
-    (instance? URI p)
+    ;; java.net.URI
+    (clojure.core/uri? p)
     (let [u ^URI p]
       (if (= (.getScheme u) "file")
         (Path/of u)
         (throw (ex-info "only file:// is supported" {:uri u}))))
+
+
+    ;; Lambdaisland uri.
+    (uri? p)
+    (if (= (p :scheme) "file")
+      (Path/of (URI. (str p)))
+      (throw (ex-info "only file:// is supported" {:uri p})))
+
     :else (throw (ex-info "unsupported path type" {:obj p
                                                    :type (class p)}))))
 
@@ -304,3 +322,13 @@
 (defn is-child-of
   [file dir]
   (exists (path-combine (coerce-to-path dir) (get-file-name (coerce-to-path file)))))
+
+(defn relativize
+  "Get a relative path between two paths."
+  [p1 p2]
+  (.relativize (coerce-to-path p1) (coerce-to-path p2)))
+
+(defn path-parts
+  "Get a sequence of path parts in `p`."
+  [p]
+  (iterator-seq (.iterator (coerce-to-path p))))
