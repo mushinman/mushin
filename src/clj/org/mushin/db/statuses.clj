@@ -6,10 +6,13 @@
             [org.mushin.db.authorization :as authz]
             [clj-uuid :as uuid]
             [xtdb.api :as xt]
-            [org.mushin.db.timestamps :as timestamps]))
+            [org.mushin.utils :refer [to-java-uri]]
+            [lambdaisland.uri :refer [join]]
+            [org.mushin.db.timestamps :as timestamps]
+            [org.mushin.db.util :as db-util]))
 
 (def status-types-schema
-  [:enum :text :image :animated-image :video :comic :tombstone])
+  [:enum :text :image :animated-image :video :comic :microblog :tombstone])
 
 
 (def statuses-schema
@@ -29,13 +32,20 @@
     [:xt/id                     :uuid]
     [:creator                   :uuid]
     [:reply-to {:optional true} :uuid]
+    [:ap-id                     uri?]
     timestamps/created-at
     timestamps/updated-at
-    [:content                   [:or [:map [:text :string]]
-                                 [:map
-                                  [:image :uuid]
-                                  [:text :string]]]]
-    authz/authorization-object-schema]})
+    [:content                   [:multi {:dispatch :type}
+                                 [:hiccup ;; Hiccup DSL.
+                                  [:map
+                                   [:type     :keyword]
+                                   [:content  [:every :any]]]]
+                                 [:html ;; HTML as a string.
+                                  [:map
+                                   [:type    :keyword]
+                                   [:content :string]]]]]
+    ;authz/authorization-object-schema
+    ]})
 
 (defn get-statuses-by-user
   [xtdb-node user-id]
@@ -54,17 +64,22 @@
     [:sql q (vec (concat [:tombstone] params))]))
 
 (defn create-status
-  [user-id content type & opt-status]
+  [user-id content type ap-id-prefix & opt-status]
   (let [{:keys [reply-to created-at updated-at]} (first opt-status)
-        now (jt/zoned-date-time)]
-    (cond-> (merge {:xt/id (uuid/v7)
+        now (jt/zoned-date-time)
+        id (random-uuid)]
+    (cond-> (merge {:xt/id      id
                     :type       type
+                    :ap-id      (to-java-uri (join ap-id-prefix id))
                     :creator    user-id
                     :created-at (or created-at now)
                     :updated-at (or updated-at now)
-                    :content    content}
-                   authz/default-object-doc)
+                    :content    content})
       reply-to (assoc :reply-to reply-to))))
+
+(defn insert-status-tx
+  [doc]
+  [[:put-docs :mushin.db/statuses doc]])
 
 (defn get-status-by-id
   ([xtdb-node cols id] (db/lookup-by-id xtdb-node :mushin.db/statuses cols id))

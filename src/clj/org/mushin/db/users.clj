@@ -68,6 +68,9 @@
     [:last-logged-in-at       (mallt/-zoned-date-time-schema)] ; TODO maybe move to a new table for user events?
     authz/authorization-object-schema]})
 
+(def safe-user-columns
+  "A list of columns that are safe to return in the API (e.g. not the password)."
+  '[xt/id log-counter nickname display-name avatar banner ap-id bio state privacy-level local? joined-at last-logged-in-at])
 
 (defn is-valid-nickname
   "Checks if a nickname is valid.
@@ -81,7 +84,7 @@
   (re-matches nickname-regex nickname))
 
 (defn get-user-by-id
-  ([xtdb-node id] (db-util/lookup-by-id xtdb-node :mushin.db/users id))
+  ([xtdb-node id] (get-user-by-id xtdb-node id safe-user-columns))
   ([xtdb-node id cols] (db-util/lookup-first xtdb-node :mushin.db/users cols {:xt/id id})))
 
 (defn check-user-id-exists? [xtdb-node user-id]

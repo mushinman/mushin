@@ -29,13 +29,13 @@
                                                            ;(if (mime/is-supported-image-type? ))
                                                            "image/png"
                                                            resource-map)
-                 (res/to-url resource-map "default-avatar.png"))
+                 (res/to-uri resource-map "default-avatar.png"))
         banner (if banner
                  (media/create-resource-from-static-image! (:tmpfile banner)
                                                            "image/png"
                                                            resource-map)
-                 (res/to-url resource-map "default-banner.png"))
-        user-url (join endpoint (str "/@" nickname))]
+                 (res/to-uri resource-map "default-banner.png"))
+        user-url (join endpoint (str "/@" nickname "/"))]
     (when (db-users/check-user-nickname-exists? xtdb-node nickname)
       (log/info {:event :creating-user-failed :nickname nickname :reason :user-already-exists})
       (conflict! {:error :user-already-exists :message "A user by that nickname already exists"}))

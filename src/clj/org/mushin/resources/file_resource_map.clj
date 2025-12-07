@@ -45,12 +45,12 @@
           ;; TODO this isn't atomic.
           (instance? InputStream resource-data) (with-open [output-file (io/output-stream resource-path-str)]
                                                   (io/copy resource-data output-file))))
-      (interface/to-url this name)))
+      (interface/to-uri this name)))
   (delete! [_ name]
     (files/delete-if-exists (get-resource-file-path base-path name)))
   (exists? [_ name]
     (files/exists (get-resource-file-path base-path name)))
-  (to-url [_ name]
+  (to-uri [_ name]
     (join resource-map-url-base (cstr/join "/" (files/path-parts (get-resource-file-path name)))))
   (open [_ name]
     (io/input-stream (str (get-resource-file-path base-path name)))))

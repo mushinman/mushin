@@ -11,4 +11,4 @@ Returns a URI to the resource.
   (open [this name] "Get a stream that references the resource referenced by `name`.")
   (exists? [this name] "Returns true if a resource referenced by `name` exists, false if not.")
   (delete! [this name] "Delete the resource referenced by `name`.  If the resource doesn't exist this operation is a no-op.")
-  (to-url [this name] "Create a URL for the resource referenced by `name`."))
+  (to-uri [this name] "Create a URI for the resource referenced by `name`."))

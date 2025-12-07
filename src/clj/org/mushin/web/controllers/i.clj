@@ -14,6 +14,7 @@
             [org.mushin.db.timeline :as db-timeline]
             [org.mushin.db.relationship :as rel]
             [org.mushin.db.users :as users]
+            [org.mushin.db.statuses :as statuses]
             [java-time.api :as time])
   (:import [java.net URI]))
 
@@ -60,16 +61,17 @@
 
 (def statuses-body-schema
   "Schema for creating statuses."
-  [:map
-   [:multi {:dispatch :type}
-    [:microblog
-     [:map
-      [:media {:description "mulitpart file" :optional true} :any]
-      [:text  {:optional true} :string]]]
-    [:meme
-     [:map
-      [:media {:description "mulitpart file"} :any]
-      [:text :string]]]]])
+  [:multi {:dispatch :type}
+   [:microblog
+    [:map
+     [:type                                                 :keyword]
+     [:media {:description "mulitpart file" :optional true} :any]
+     [:content  {:optional true} [:every :any]]]]
+   [:meme
+    [:map
+     [:type                                  :keyword]
+     [:media {:description "mulitpart file"} :any]
+     [:text :string]]]])
 
 
 (def bitemporal-collection-query-schema
@@ -88,8 +90,7 @@
   (if-let [user-doc
            (users/get-user-by-id
             xtdb-node
-            user-id
-            '[xt/id email log-counter nickname bio privacy-level local? joined-at last-logged-in-at state])]
+            user-id)]
     (ok user-doc)
     (not-found! {:error :user-not-found :message "The user you tried to find was not found."})))
 
@@ -143,12 +144,32 @@
     ;; Unrecognized tag.
     nil))
 
+(defn submit-and-accept
+  [xtdb-node txs loc]
+  (db/compose-and-submit-txs! xtdb-node txs)
+  (accepted loc))
+
+(defn exec-and-ok
+  ([xtdb-node txs response]
+   (db/compose-and-execute-txs! xtdb-node txs)
+   (ok response))
+  ([xtdb-node txs]
+   (db/compose-and-execute-txs! xtdb-node txs)
+   (ok)))
+
 (defn create-microblog!
-  [xtdb-node async? endpoint {:keys [media blog]}]
-  (h/sanitize-hiccough blog microblog-verifier-map false
-                       (fn [user-name]
-                         (when-let [user (users/get-user-by-id xtdb-node user-name)]
-                           (:ap-id user)))))
+  [xtdb-node self async? {:keys [media content]}]
+  (let [blog (h/sanitize-hiccough content microblog-verifier-map false
+                                  (fn [user-name]
+                                    (when-let [user (users/get-user-by-id xtdb-node user-name)]
+                                      (:ap-id user))))
+        ;; Author is guarunteed to exist at this point.
+        {:keys [ap-id]} (users/get-user-by-id xtdb-node self)
+        status (statuses/create-status self {:content blog :type :hiccup} :microblog (join ap-id "./statuses/"))]
+
+    (if async? ; TODO respond with full URI
+      (submit-and-accept xtdb-node (statuses/insert-status-tx status) "TODO")
+      (exec-and-ok xtdb-node (statuses/insert-status-tx status) status))))
 
 (defn create-meme!
   [xtdb-node async? resource-map {{:keys [tempfile]} :media
@@ -173,7 +194,7 @@
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (case type
-    :microblog (create-microblog! xtdb-node async? body endpoint)
+    :microblog (create-microblog! xtdb-node user-id async? body)
     :meme (create-meme! xtdb-node resource-map async? body)))
 
 (defn get-timeline

@@ -103,6 +103,10 @@
      ;;  ["/favor"]
      ;;  ["/unfavor"]]
 
+     ["/create-status"
+      {:post {:handler (partial self/create-status! opts)
+              :parameters {:body self/statuses-body-schema}}}]
+
      ["/relationships"
 
       ["/following"

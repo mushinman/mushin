@@ -89,7 +89,7 @@
             (let [temp-svg (files/create-temp-file)]
               (try
                 (svg/write-svgdoc-to-file! (caption/caption-svg width height
-                                                          (res/to-url resource-map resource-name) text caption-pixel-height)
+                                                          (res/to-uri resource-map resource-name) text caption-pixel-height)
                                            temp-svg)
                 (let [resource-name (str (digest/digest->b64u (digest/digest-file temp-svg)) ".svg")]
                   (res/create! resource-map resource-name temp-svg))
