@@ -68,3 +68,16 @@ accumulator."}
   with the accumulator in the first column."
   [f acc form]
   (walk (partial postwalk f) f acc form))
+
+
+(defn postwalk-noassoc
+  "Same as clojure's `postwalk` but carries an accumulator. The `f` function
+  should now take 2 arguments for the accumulator and the form, and should return a tuple
+  with the accumulator in the first column.
+
+  This variant skips associations/returns them as-is."
+  [f acc form]
+  (walk (if (map? form)
+          (fn [acc form] [acc form])
+          (partial postwalk-noassoc f))
+        f acc form))

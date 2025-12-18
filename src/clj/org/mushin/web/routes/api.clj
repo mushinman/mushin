@@ -107,6 +107,11 @@
       {:post {:handler (partial self/create-status! opts)
               :parameters {:body self/statuses-body-schema}}}]
 
+
+     ["/add-media"
+      {:post {:handler (partial self/add-media! opts)}}]
+
+
      ["/relationships"
 
       ["/following"

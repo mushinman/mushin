@@ -65,14 +65,15 @@
    [:microblog
     [:map
      [:type                                                 :keyword]
-     [:media {:description "mulitpart file" :optional true} :any]
      [:content  {:optional true} [:every :any]]]]
    [:meme
     [:map
      [:type                                  :keyword]
-     [:media {:description "mulitpart file"} :any]
      [:text :string]]]])
 
+(def media-schema
+  "Schema for uploading media files."
+   [:any {:description "mulitpart file"}])
 
 (def bitemporal-collection-query-schema
   "Schema for bitemporal queries on collections."
@@ -92,7 +93,8 @@
             xtdb-node
             user-id)]
     (ok user-doc)
-    (not-found! {:error :user-not-found :message "The user you tried to find was not found."})))
+    (not-found! {:error :user-not-found
+                 :message "The user you tried to find was not found."})))
 
 (defn get-roles ; TODO
   [{:keys [xtdb-node]}
@@ -132,14 +134,29 @@
   (when (= attr :href)
     href-verifier))
 
+;; :tag, {attrs} -> [:tag {attrs}], or [:tag], or nil
+;; 
+
+
+(defn- resource-src-converter
+  [resources tag {:keys [src]}]
+  (when src ;; src tag is required.
+    [tag (if contains?
+           {:src (resources src)}
+           (bad-request! {:error :non-existant-img
+                          :file-name src}))]))
+
 (defn- microblog-verifier-map
-  [tag]
+  [resources tag]
   (case tag
-    (:a :img) href-tag-verifier
+    :a href-tag-verifier
+
+    :img (partial resource-src-converter resources)
 
     ;; Tags with no supported attributes.
     (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
-    {}
+    (fn [tag _]
+      [tag])
 
     ;; Unrecognized tag.
     nil))
@@ -158,8 +175,35 @@
    (ok)))
 
 (defn create-microblog!
-  [xtdb-node self async? {:keys [media content]}]
-  (let [blog (h/sanitize-hiccough content microblog-verifier-map false
+  [xtdb-node resource-map self async? {:keys [media content]}]
+  (let [
+        resources ; Map of filename -> resource URI.
+        ;; Add all media to the resource system.
+        (into
+         {}
+         (map (fn [{:keys [tempfile filename]}]
+                (let [upload-type (files/detect-content-type tempfile)]
+                  [filename 
+                   (case upload-type
+                     ("image/jpeg" "image/png")
+                     (media/create-resource-from-static-image!
+                      tempfile
+                      upload-type
+                      resource-map)
+
+                     "image/gif"
+                     (media/create-resource-from-buffered-image!
+                      tempfile
+                      upload-type
+                      resource-map)
+
+                     (bad-request! {:error :invalid-upload-type
+                                    :upload-type upload-type}))])))
+         media)
+
+        blog (h/sanitize-hiccough content
+                                  (partial microblog-verifier-map resources)
+                                  false
                                   (fn [user-name]
                                     (when-let [user (users/get-user-by-id xtdb-node user-name)]
                                       (:ap-id user))))
@@ -181,10 +225,14 @@
       (let [content-type (files/detect-content-type tempfile)]
         (case content-type
           ("image/jpeg" "image/png")
-          (media/create-captioned-resource-from-static-image! tempfile resource-map content-type text)
-            (bad-request! {:error :invalid-content-type
-                           :message "The content type isn't supported"
-                           :content-type content-type})))
+          (media/create-captioned-resource-from-static-image!
+           tempfile
+           resource-map
+           content-type
+           text)
+          (bad-request! {:error :invalid-content-type
+                         :message "The content type isn't supported"
+                         :content-type content-type})))
       (finally
         (files/delete-if-exists tempfile)))))
 
@@ -194,8 +242,40 @@
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (case type
-    :microblog (create-microblog! xtdb-node user-id async? body)
+    :microblog (create-microblog! xtdb-node resource-map user-id async? body)
     :meme (create-meme! xtdb-node resource-map async? body)))
+
+(defn add-media!
+  [{:keys [resource-map]}
+   {:keys [params]
+    {:keys [user-id]} :session}]
+  (ok
+   (into
+    {}
+    (map (fn [[tag {:keys [tempfile]}]]
+           (let [upload-type (files/detect-content-type tempfile)]
+             [tag 
+              (case upload-type
+                ("image/jpeg" "image/png")
+                (:xt/id
+                 (let [res (media/create-resource-from-static-image!
+                  tempfile
+                  upload-type
+                  resource-map)]
+                   (println "==================res" res
+                          )
+                   res))
+
+                "image/gif"
+                (:xt/id
+                 (media/create-resource-from-buffered-image!
+                  tempfile
+                  upload-type
+                  resource-map))
+
+                (bad-request! {:error :invalid-upload-type
+                               :upload-type upload-type}))])))
+    params)))
 
 (defn get-timeline
   [{:keys [xtdb-node]}
@@ -336,7 +416,7 @@
                    "You cannot unfollow a user you are not following"
 
                    :self-unfollow
-                    "You cannot unfollow yourself")}))))
+                   "You cannot unfollow yourself")}))))
 
 
 (defn get-following

@@ -72,8 +72,9 @@
  :org.mushin.resources/provider
  {:local
   {:path "C:\\inetpub\\mushin_media"
+   :xtdb-node #ig/ref :db.xtdb/node
    ;; Could be a string, or {:host, :scheme, :port}
-   :endpoint "http://localhost"}} ; HERE: Change this.
+   :endpoint "http://media.localhost/res/"}} ; HERE: Change this.
 
  ;; Database cleanup tasks.
  :org.mushin.db.tasks/tasks

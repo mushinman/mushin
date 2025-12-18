@@ -84,9 +84,12 @@
 (defn lookup [node table cols qs]
   (xt/q node (xt/template (from ~table [~@cols ~qs]))))
 
-(defn lookup-first [node table cols qs]
-  (first (xt/q node (xt/template (-> (from ~table [~@cols ~qs])
-                                     (limit 1))))))
+(defn lookup-first
+  ([node table cols qs]
+   (first (xt/q node (xt/template (-> (from ~table [~@cols ~qs])
+                                      (limit 1))))))
+  ([node table qs]
+   (lookup-first node table '[*] qs)))
 
 (defn lookup-exists-any? [node table qs]
   (boolean (first (xt/q node

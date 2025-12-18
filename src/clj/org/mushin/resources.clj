@@ -10,9 +10,9 @@
   (log/info "Initializing the resource store provider...")
   (cond
     (contains? location :local)
-    (let [{:keys [path endpoint] :as config} (:local location)]
+    (let [{:keys [path endpoint xtdb-node] :as config} (:local location)]
       (log/info "Creating filesystem resource provider with config:" config)
-      (fsm/->FileSystemResourceMap (files/path path) (uri endpoint)))
+      (fsm/->FileSystemResourceMap (files/path path) (uri endpoint) xtdb-node))
 
     :else (throw (ex-info "Unrecognized resource store provider settings" {:settings location}))))
 

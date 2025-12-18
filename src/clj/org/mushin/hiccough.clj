@@ -1,5 +1,5 @@
 (ns org.mushin.hiccough
-  (:require [org.mushin.acc :refer [postwalk mapv-acc]]
+  (:require [org.mushin.acc :refer [postwalk-noassoc mapv-acc]]
             [clojure.string :as cstr])
   (:import [java.util.regex Matcher]))
 
@@ -51,11 +51,9 @@
   # Arguments
   - `hiccough`: Hiccough syntax to sanitize
   - `whitelist`: A function that takes 1 argument: a hiccup tag (e.g. `:p`) and returns
-  `nil` if the tag is not whitelisted, else returns a function. The returned function
-  takes 1 argument: a hiccup attribute (e.g. `:href`) and returns nil if the attribute
-  is not whitelisted, else returns a sanitization function that takes 1 argument:
-  an attribute value, and returns returns `nil` if the attribute should be removed,
-  else returns a sanitized value.
+  `nil` if the tag is not whitelisted, else returns a function. That function takes
+  2 arguments: the tag and a map of attributes, and should return a tag with a new
+  attributes map, or just a tag, or nil of the tag should be removed.
   - `ids-and-classes?`: True if hiccough should allow hiccup style ids and classes
   (e.g. `:p#id.class`), false if not. If false: all ids and classes are removed.
   - `account-name-to-link:` A function of one argument: an account nickname or a
@@ -73,7 +71,7 @@
   |             |                       |                                                                                                    |
   "
   [hiccough whitelist ids-and-classes? account-name-to-link]
-  (postwalk
+  (postwalk-noassoc
    (fn [{:keys [mentions] :as acc} e]
      (cond
        (or (map? e)
@@ -89,6 +87,7 @@
                (if (map? (first attrs-and-children))
                  [tag (first attrs-and-children) (vec (rest attrs-and-children))]
                  [tag nil (vec attrs-and-children)]))
+
 
              ;; Process child nodes: convert @mentions into links, etc..
              [mentions children]
@@ -121,16 +120,13 @@
 
              just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))]
          [(assoc acc :mentions mentions) ; Update the accumulator.
-          (when-let [verifiers (whitelist just-tag)]
-            (let [attrs (into {}
-                              (filter
-                               (fn [[attr v]] (when-let [verifier (verifiers attr)]
-                                                (verifier v))))
-                              attrs?)
-                  children (->> children (remove nil?) vec)]
-              (cond-> [(if ids-and-classes? tag just-tag)]
-                (not-empty attrs) (conj attrs)
-                (not-empty children) (into children))))])
+          ;; If no verifier or the verifier returns nil: remove the tag.
+          (when-let [verifier (whitelist just-tag)]
+            (when-let [[just-tag attrs] (verifier tag attrs?)]
+              (let [children (->> children (remove nil?) vec)]
+                (cond-> [(if ids-and-classes? tag just-tag)]
+                  (not-empty attrs) (conj attrs)
+                  (not-empty children) (into children)))))])
 
        :else
        (throw (ex-info "Invalid hiccough syntax" {:at e}))))

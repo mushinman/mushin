@@ -28,8 +28,8 @@
   [^BufferedImage img mime-type resource-map]
   (let [mime-ext (mime/mime-type-to-extensions mime-type)
         resource-name (str (codecs/bytes->b64u (img/checksum-image img)) "." mime-ext)]
-    (if (res/exists? resource-map resource-name)
-      resource-name
+    (if-let [metadata (res/metadata resource-map resource-name)]
+      metadata
       (let [output-file-path (files/create-temp-file)]
         (try
           (with-open [temp-output-file (io/output-stream (str output-file-path))
@@ -68,9 +68,8 @@
                   image-ios (ImageIO/createImageOutputStream temp-output-file)]
         (img/write-img-from-mime-type img mime-type image-ios))
 
-      (if (res/exists? resource-map resource-name)
-        ;; Ensure resource exists.
-        resource-name
+      (if-let [metadata (res/metadata resource-map resource-name)]
+        metadata
         (res/create! resource-map resource-name output-file-path))
 
       (let [;; Save the captioned version of the image, the SVG.
@@ -130,8 +129,8 @@
                                    (recur (inc i) md scenes))
                                (digest/digest->b64u md)))
                            ".gif")]
-    (if (res/exists? resource-map resource-name)
-      resource-name
+    (if-let [metadata (res/metadata resource-map resource-name)]
+      metadata
       (let [output-file-path (files/create-temp-file "" "")]
         (try
           (with-open [temp-output-file (io/output-stream (str output-file-path))
