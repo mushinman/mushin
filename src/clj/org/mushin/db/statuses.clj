@@ -33,6 +33,7 @@
     [:creator                   :uuid]
     [:reply-to {:optional true} :uuid]
     [:ap-id                     uri?]
+    [:mentions                  [:set :uuid]]
     timestamps/created-at
     timestamps/updated-at
     [:content                   [:multi {:dispatch :type}
@@ -64,13 +65,14 @@
     [:sql q (vec (concat [:tombstone] params))]))
 
 (defn create-status
-  [user-id content type ap-id-prefix & opt-status]
-  (let [{:keys [reply-to created-at updated-at]} (first opt-status)
-        now (jt/zoned-date-time)
+  [user-id content type ap-id-prefix & {:keys [reply-to created-at updated-at
+                                               mentions]}]
+  (let [now (jt/zoned-date-time)
         id (random-uuid)]
     (cond-> (merge {:xt/id      id
                     :type       type
                     :ap-id      (to-java-uri (join ap-id-prefix id))
+                    :mentions   (or mentions #{})
                     :creator    user-id
                     :created-at (or created-at now)
                     :updated-at (or updated-at now)

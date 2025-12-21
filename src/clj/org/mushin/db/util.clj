@@ -73,6 +73,12 @@
       first
       :xt/id))
 
+(defn lookup-by-ids [db-con table ids cols]
+  (xt/q db-con [(xt/template (fn [ids]
+                               (unify (unnest {id ids})
+                                      (from table [~@cols {:xt/id id}]))))
+                ids]))
+
 (defn lookup-ids
   [node table qs]
   (map :xt/id (xt/q node

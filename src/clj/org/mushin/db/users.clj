@@ -87,6 +87,10 @@
   ([xtdb-node id] (get-user-by-id xtdb-node id safe-user-columns))
   ([xtdb-node id cols] (db-util/lookup-first xtdb-node :mushin.db/users cols {:xt/id id})))
 
+(defn get-users-by-ids
+  [db-con ids]
+  (db-util/lookup-by-ids db-con :mushin.db/users ids))
+
 (defn check-user-id-exists? [xtdb-node user-id]
   (db-util/record-exists? xtdb-node :mushin.db/users user-id))
 
@@ -94,7 +98,7 @@
   (db-util/lookup-exists-any? xtdb-node :mushin.db/users {:nickname nickname}))
 
 (defn get-user-by-name
-  ([xtdb-node nickname] (get-user-by-name xtdb-node '[*] nickname))
+  ([xtdb-node nickname] (get-user-by-name xtdb-node safe-user-columns nickname))
   ([xtdb-node cols nickname] (db-util/lookup-first xtdb-node :mushin.db/users cols {:nickname nickname})))
 
 (defn get-user-id-by-nickname

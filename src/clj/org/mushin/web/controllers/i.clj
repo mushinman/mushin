@@ -6,6 +6,7 @@
             [org.mushin.hiccough :as h]
             [lambdaisland.uri :refer [join]]
             [org.mushin.db.media :as media]
+            [org.mushin.db.resource-meta :as res-meta]
             [org.mushin.files :as files]
             [clojure.tools.logging :as log]
             [org.mushin.db.likes :as likes]
@@ -137,21 +138,20 @@
 ;; :tag, {attrs} -> [:tag {attrs}], or [:tag], or nil
 ;; 
 
-
 (defn- resource-src-converter
-  [resources tag {:keys [src]}]
+  [db-con tag {:keys [src]}]
   (when src ;; src tag is required.
-    [tag (if contains?
-           {:src (resources src)}
+    [tag (if-let [res-metadata (res-meta/get-resource-by-id db-con src)]
+           {:src (res-metadata :location)}
            (bad-request! {:error :non-existant-img
                           :file-name src}))]))
 
 (defn- microblog-verifier-map
-  [resources tag]
+  [db-con tag]
   (case tag
     :a href-tag-verifier
 
-    :img (partial resource-src-converter resources)
+    :img (partial resource-src-converter db-con)
 
     ;; Tags with no supported attributes.
     (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
@@ -175,45 +175,22 @@
    (ok)))
 
 (defn create-microblog!
-  [xtdb-node resource-map self async? {:keys [media content]}]
-  (let [
-        resources ; Map of filename -> resource URI.
-        ;; Add all media to the resource system.
-        (into
-         {}
-         (map (fn [{:keys [tempfile filename]}]
-                (let [upload-type (files/detect-content-type tempfile)]
-                  [filename 
-                   (case upload-type
-                     ("image/jpeg" "image/png")
-                     (media/create-resource-from-static-image!
-                      tempfile
-                      upload-type
-                      resource-map)
+  [db-con self async? {:keys [content]}]
+  (let [[{:keys [mentions]} blog]
+        (h/sanitize-hiccough content
+                             (partial microblog-verifier-map db-con)
+                             false
+                             (fn [user-name]
+                               (users/get-user-by-name db-con user-name)))
 
-                     "image/gif"
-                     (media/create-resource-from-buffered-image!
-                      tempfile
-                      upload-type
-                      resource-map)
-
-                     (bad-request! {:error :invalid-upload-type
-                                    :upload-type upload-type}))])))
-         media)
-
-        blog (h/sanitize-hiccough content
-                                  (partial microblog-verifier-map resources)
-                                  false
-                                  (fn [user-name]
-                                    (when-let [user (users/get-user-by-id xtdb-node user-name)]
-                                      (:ap-id user))))
-        ;; Author is guarunteed to exist at this point.
-        {:keys [ap-id]} (users/get-user-by-id xtdb-node self)
-        status (statuses/create-status self {:content blog :type :hiccup} :microblog (join ap-id "./statuses/"))]
+        {:keys [ap-id]} (users/get-user-by-id db-con self)
+        status (statuses/create-status self {:content blog :type :hiccup}
+                                       :microblog (join ap-id "./statuses/")
+                                       :mentions (into #{} (map :xt/id (vals mentions))))]
 
     (if async? ; TODO respond with full URI
-      (submit-and-accept xtdb-node (statuses/insert-status-tx status) "TODO")
-      (exec-and-ok xtdb-node (statuses/insert-status-tx status) status))))
+      (submit-and-accept db-con (statuses/insert-status-tx status) "TODO")
+      (exec-and-ok db-con (statuses/insert-status-tx status) status))))
 
 (defn create-meme!
   [xtdb-node async? resource-map {{:keys [tempfile]} :media
@@ -237,13 +214,13 @@
         (files/delete-if-exists tempfile)))))
 
 (defn create-status!
-  [{:keys [xtdb-node resource-map endpoint]}
+  [{:keys [xtdb-node endpoint]}
    {{{:keys [type] :as body} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (case type
-    :microblog (create-microblog! xtdb-node resource-map user-id async? body)
-    :meme (create-meme! xtdb-node resource-map async? body)))
+    :microblog (create-microblog! xtdb-node user-id async? body)
+    :meme (create-meme! xtdb-node async? body)))
 
 (defn add-media!
   [{:keys [resource-map]}
@@ -258,13 +235,10 @@
               (case upload-type
                 ("image/jpeg" "image/png")
                 (:xt/id
-                 (let [res (media/create-resource-from-static-image!
+                 (media/create-resource-from-static-image!
                   tempfile
                   upload-type
-                  resource-map)]
-                   (println "==================res" res
-                          )
-                   res))
+                  resource-map))
 
                 "image/gif"
                 (:xt/id

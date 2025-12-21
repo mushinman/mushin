@@ -29,7 +29,9 @@
                              [before-match]
                              [])
                            {:match :ap
-                            :target (subs s (.start matcher) (.end matcher))}))
+                            ;; Target username.
+                            :target (subs s (+ 1 (.start matcher)) (.end matcher))
+                            :original-text (subs s (.start matcher) (.end matcher))}))
                (.end matcher))))))
 
 (defn- tag?
@@ -100,15 +102,22 @@
                         (mapv-acc
                          (fn [mentions msg-part]
                            (cond
+                             ;; Not a mention.
                              (string? msg-part)
                              [mentions msg-part]
 
+                             ;; Mention map.
                              (map? msg-part)
-                             (let [{:keys [target]} msg-part
-                                   acc-link (or (get mentions target)
-                                                (account-name-to-link target))]
-                               [(assoc mentions target acc-link)
-                                [:a {:href acc-link} target]])))
+                             (let [{:keys [target original-text]} msg-part
+
+                                   {:keys [ap-id] :as user}
+                                   (or (mentions target)
+                                       (account-name-to-link target))]
+                               (if user
+                                 ;; Return the original text back if the user couldn't be found.
+                                 [(assoc mentions target user)
+                                  [:a {:href ap-id} target]]
+                                 [mentions original-text]))))
                          mentions
                          (split-by-mentions child))]
                     [mentions (into new-children processed-text)])
