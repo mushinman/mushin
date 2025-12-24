@@ -2,8 +2,10 @@
   (:require [ring.util.http-response :refer [bad-request! not-found! accepted
                                              no-content unauthorized! conflict! ok]]
             [org.mushin.db.authorization :as db-authz]
+            [org.mushin.acc :as acc]
             [malli.experimental.time :as mallt]
             [org.mushin.hiccough :as h]
+            [hiccup2.core :as hiccup]
             [lambdaisland.uri :refer [join]]
             [org.mushin.db.media :as media]
             [org.mushin.db.resource-meta :as res-meta]
@@ -63,18 +65,22 @@
 (def statuses-body-schema
   "Schema for creating statuses."
   [:multi {:dispatch :type}
+   [:comic
+    [:map
+     [:type :keyword]
+     [:content  {:optional true} [:vector [:every :any]]]]]
    [:microblog
     [:map
-     [:type                                                 :keyword]
+     [:type :keyword]
      [:content  {:optional true} [:every :any]]]]
    [:meme
     [:map
-     [:type                                  :keyword]
+     [:type :keyword]
      [:text :string]]]])
 
 (def media-schema
   "Schema for uploading media files."
-   [:any {:description "mulitpart file"}])
+  [:any {:description "mulitpart file"}])
 
 (def bitemporal-collection-query-schema
   "Schema for bitemporal queries on collections."
@@ -161,6 +167,44 @@
     ;; Unrecognized tag.
     nil))
 
+(defn- ensure-positive
+  [n attr tag]
+  (if (and (number? n)
+           (pos? n)
+           (not (Double/isInfinite (double num))))
+    n
+    (bad-request! {:error :invalid-attribtue
+                   :attr attr
+                   :value n
+                   :tag tag})))
+
+(defn- comic-verifier-map
+  [db-con tag]
+  (case tag
+    :a href-tag-verifier
+
+    :img
+    (fn [db-con tag {:keys [src width height x y]}]
+      (let [{:keys [location]} (res-meta/get-resource-by-id db-con src)]
+        (if (and src width height location)
+          [tag {:src location
+                :width (ensure-positive width :width tag)
+                :height (ensure-positive height :height tag)
+                :x (ensure-positive x :x tag)
+                :y (ensure-positive y :y tag)}]
+          (bad-request! {:error :invalid-img-tag
+                         :file-name src}))))
+
+    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
+    (fn [tag {:keys [src width height x y]}]
+      (if (and src width height x y)
+        [tag {:width (ensure-positive width :width tag)
+              :height (ensure-positive height :height tag)
+              :x (ensure-positive x :x tag)
+              :y (ensure-positive y :y tag)}]
+        (bad-request! {:error :invalid-img-tag
+                       :file-name src})))))
+
 (defn submit-and-accept
   [xtdb-node txs loc]
   (db/compose-and-submit-txs! xtdb-node txs)
@@ -174,6 +218,7 @@
    (db/compose-and-execute-txs! xtdb-node txs)
    (ok)))
 
+
 (defn create-microblog!
   [db-con self async? {:keys [content]}]
   (let [[{:keys [mentions]} blog]
@@ -184,8 +229,9 @@
                                (users/get-user-by-name db-con user-name)))
 
         {:keys [ap-id]} (users/get-user-by-id db-con self)
-        status (statuses/create-status self {:content blog :type :hiccup}
-                                       :microblog (join ap-id "./statuses/")
+        status (statuses/create-status self {:hiccup blog
+                                             :html (str (hiccup/html blog))}
+                                       :microblog :hiccup (join ap-id "./statuses/")
                                        :mentions (into #{} (map :xt/id (vals mentions))))]
 
     (if async? ; TODO respond with full URI
@@ -213,12 +259,43 @@
       (finally
         (files/delete-if-exists tempfile)))))
 
+(defn create-comic!
+  [db-con self async? {:keys [content]}]
+  (let [[{:keys [mentions]} panels]
+        (acc/mapv-acc (fn [acc panel]
+                        (let [[panel-acc sanitized-panel]
+                              (h/sanitize-hiccough panel
+                                             (partial microblog-verifier-map db-con)
+                                             false
+                                             (fn [user-name]
+                                               (users/get-user-by-name db-con user-name))
+                                             acc)]
+                          ;; Wrap the sanitized output in a :panel tag.
+                          [panel-acc [:panel sanitized-panel]]))
+                      h/default-hiccough-accumulator
+                      content)
+
+        comic (into [:comic] panels)
+
+        {:keys [ap-id]} (users/get-user-by-id db-con self)
+        status (statuses/create-status self
+                                       {:hiccup comic
+                                        ;; TODO
+                                        :svg []}
+                                       :comic (join ap-id "./statuses/")
+                                       :mentions (into #{} (map :xt/id (vals mentions))))]
+
+    (if async? ; TODO respond with full URI
+      (submit-and-accept db-con (statuses/insert-status-tx status) "TODO")
+      (exec-and-ok db-con (statuses/insert-status-tx status) status))))
+
 (defn create-status!
   [{:keys [xtdb-node endpoint]}
    {{{:keys [type] :as body} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (case type
+    :comic (create-comic! xtdb-node user-id async? body)
     :microblog (create-microblog! xtdb-node user-id async? body)
     :meme (create-meme! xtdb-node async? body)))
 
@@ -360,6 +437,14 @@
     (xt/submit-tx xtdb-node [(rel/delete-realtion-tx :mute user-id id)])
     (xt/execute-tx xtdb-node [(rel/delete-realtion-tx :mute user-id id)]))
   (no-content))
+
+(defn get-status
+  [{:keys xtdb-node}
+   {{:keys [user-id]} :session
+    {{:keys [id]} :path} :parameters}]
+  (if-let [status (statuses/get-statuses-by-id xtdb-node id)]
+    status)
+  (cond (users/check-user-can-view-user xtdb-node user-id ())))
 
 (defn unblock-user!
   [{:keys [xtdb-node]}

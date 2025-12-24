@@ -95,8 +95,8 @@
      ["/delete-me"
       {:delete {:handler (partial self/delete-self! opts)
                 :parameters {:body self/delete-me-body-schema}}}]
-     ;; ["/statuses/:id"
-     ;;  {}
+      ["/statuses/:id"
+       {:get {:handler ()}}]
      ;;  ["/redact"]
      ;;  ["/like"]
      ;;  ["/unlike"]

@@ -45,6 +45,8 @@
   [e]
   (and (vector? e) (keyword? (first e))))
 
+(def default-hiccough-accumulator {:mentions {}})
+
 (defn sanitize-hiccough
   "Sanitize hiccough syntax into valid hiccup. Filters elements and attributes based off
   a whitelist. Convert @ mentions into links. Returns tuple of information relating to
@@ -72,7 +74,7 @@
   | `:mentions` | Map[string -> string] | Map where each key is a nickname or fully qualified name, and each value is a URI to that resource |
   |             |                       |                                                                                                    |
   "
-  [hiccough whitelist ids-and-classes? account-name-to-link]
+  ([hiccough whitelist ids-and-classes? account-name-to-link initial-acc]
   (postwalk-noassoc
    (fn [{:keys [mentions] :as acc} e]
      (cond
@@ -139,6 +141,7 @@
 
        :else
        (throw (ex-info "Invalid hiccough syntax" {:at e}))))
-   {:mentions {}}
+   initial-acc
    hiccough))
-
+  ([hiccough whitelist ids-and-classes? account-name-to-link]
+   (sanitize-hiccough hiccough whitelist ids-and-classes? account-name-to-link default-hiccough-accumulator)))

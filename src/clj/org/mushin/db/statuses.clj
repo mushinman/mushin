@@ -17,18 +17,22 @@
 
 (def statuses-schema
   "Schema for statuses.
-  | Key          | Type                              | Meaning                               |
-  |:-------------|:----------------------------------|:--------------------------------------|
-  | `xt/id`      | UUID                              | Row Key                               |
-  | `creator`    | UUID/Foreign key to `users` table | Owner of the status                   |
-  | `reply-to`   | UUID/Key for `statuses` table     | Status that this status is a reply to |
-  | `created-at` | Timestamp                         | The time a user created this post     |
-  | `updated-at` | Timestamp                         | The time a user edited this post      |
-  | `content`    | Text and/or media                 | The content of the post               |
+  | Key                | Type                              | Meaning                                                    |
+  |:-------------------|:----------------------------------|:-----------------------------------------------------------|
+  | `xt/id`            | UUID                              | Row Key                                                    |
+  | `primary-encoding` | keyword                           | The default post content encdoing, e.g. `:html`, `:hiccup` |
+  | `creator`          | UUID/Foreign key to `users` table | Owner of the status                                        |
+  | `reply-to`         | UUID/Key for `statuses` table     | Status that this status is a reply to                      |
+  | `created-at`       | Timestamp                         | The time a user created this post                          |
+  | `updated-at`       | Timestamp                         | The time a user edited this post                           |
+  | `content`          | Map                               | The content of the post                                    |
+  `content` is a map where each key is a version of the post in some format, e.g. `:hiccup` for
+  hiccup syntax, or `:html` for raw html, or `:svg`, etc..
   "
   {:mushin.db/statuses
    [:map
     [:type                      status-types-schema]
+    [:primary-encoding          :keyword]
     [:xt/id                     :uuid]
     [:creator                   :uuid]
     [:reply-to {:optional true} :uuid]
@@ -36,15 +40,7 @@
     [:mentions                  [:set :uuid]]
     timestamps/created-at
     timestamps/updated-at
-    [:content                   [:multi {:dispatch :type}
-                                 [:hiccup ;; Hiccup DSL.
-                                  [:map
-                                   [:type     :keyword]
-                                   [:content  [:every :any]]]]
-                                 [:html ;; HTML as a string.
-                                  [:map
-                                   [:type    :keyword]
-                                   [:content :string]]]]]
+    [:content                   :map]
     ;authz/authorization-object-schema
     ]})
 
@@ -65,13 +61,15 @@
     [:sql q (vec (concat [:tombstone] params))]))
 
 (defn create-status
-  [user-id content type ap-id-prefix & {:keys [reply-to created-at updated-at
-                                               mentions]}]
+  [user-id content type primary-encoding ap-id-prefix &
+   {:keys [reply-to created-at updated-at
+           mentions]}]
   (let [now (jt/zoned-date-time)
         id (random-uuid)]
     (cond-> (merge {:xt/id      id
                     :type       type
                     :ap-id      (to-java-uri (join ap-id-prefix id))
+                    :primary-encoding primary-encoding
                     :mentions   (or mentions #{})
                     :creator    user-id
                     :created-at (or created-at now)
