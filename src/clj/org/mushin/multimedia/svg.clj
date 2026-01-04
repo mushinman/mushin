@@ -1,11 +1,14 @@
 (ns org.mushin.multimedia.svg
   (:require [clojure.java.io :as io]
+            [org.mushin.acc :refer [postwalk-noassoc mapv-acc]]
             [org.mushin.multimedia.buffered-image-transcoder :as bit]
+            [org.mushin.geom :as geom]
             [clojure.walk :as walk]
-            [clojure.string :as str]
+            [clojure.string :as cstr]
             [org.mushin.files :as files])
   (:import [io.sf.carte.echosvg.transcoder TranscoderInput SVGAbstractTranscoder]
            [io.sf.carte.echosvg.anim.dom SVGDOMImplementation]
+           [java.awt.geom AffineTransform]
            [io.sf.carte.echosvg.dom GenericAttr]
            [javax.xml.transform TransformerFactory OutputKeys]
            [io.sf.carte.echosvg.anim.dom SAXSVGDocumentFactory]
@@ -29,8 +32,8 @@
   # Return value
   The keyword `k` with all kebab-case instances converted to camelCase."
   [k]
-  (let [words (str/split (name k) #"-")]
-    (->> (map str/capitalize (rest words))
+  (let [words (cstr/split (name k) #"-")]
+    (->> (map cstr/capitalize (rest words))
          (apply str (first words))
          keyword)))
 
@@ -73,6 +76,29 @@
   ^SVGElement
   [^SVGDocument doc]
   (.getDocumentElement doc))
+
+(defn viewbox-str
+  "Convert 4 values into a viewBox string."
+  [x y width height]
+  (str x " " y " " width " " height))
+
+(defn transform-str
+  [x y scale-x scale-y rotation-degrees]
+  (str "translate(" x "," y ")"
+       (if (and (= scale-x 1.0)
+                (= scale-y 1.0))
+         ""
+         (if (= scale-x scale-y)
+           (str " scale(" scale-x ")")
+           (str " scale(" scale-x "," scale-y ")")))
+       (if (= rotation-degrees 0.0)
+         ""
+         (str " rotate(" rotation-degrees ")"))))
+
+(defn affine-transform->transform-str
+  [^AffineTransform tx]
+  (transform-str (geom/get-translate-x tx) (geom/get-translate-y tx)
+                 (geom/get-scale-x tx) (geom/get-scale-y tx) 0.0))
 
 (defn create-attr
   "Create an attribute.
@@ -182,8 +208,14 @@
   # Return value
   The new element."
   ^Element
-  [^SVGDocument doc ^String elem-name]
-  (.createElement doc elem-name))
+  [^SVGDocument doc elem]
+  (let [elem-name ^String (cond
+                            (string? elem) elem
+
+                            (keyword? elem)
+                            (cstr/join (rest (str (kebab-case->camel-case elem)))))]
+    (.createElement doc elem-name)))
+
 
 (defn add-child!
   "Add a element to another element as a child, alterning the element.
@@ -227,6 +259,21 @@
     (.appendChild (get-root doc) tag)
     tag))
 
+(defn create-a-tag
+  ^Element
+  [^SVGDocument doc ^String href child]
+  (let [a (create-elem doc "a")]
+    (set-attr! a "href" href)
+    (add-child!
+     a 
+     (cond
+       (string? child)
+       (create-text-node doc child)
+
+       (instance? Element child)
+       child))
+    a))
+
 (defn doc->string
   "Convert a SVGDocument to a string.
 
@@ -258,26 +305,12 @@
   [e]
   (and (vector? e) (keyword? (first e))))
 
-(defn- postwalk
-  "A version of postwalk that does not recurse into maps (note that `f` will still be applied
-  to the map itself, just not its key value pairs).
-
-  # Arguments
-    - `f`: A function applied to each element.
-    - `form`: The form to process
-  # Return value
-  The result of `f` applied to the parent node of `form`."
-  [f form]
-  (walk/walk
-   (if (map? form)
-     identity
-     (partial postwalk f)) f form))
 
 (defn hiccough->svg!
   "Convert SVG hiccough DSL syntax into a SVGDocument. It places
   its document tags into the provided coument.
 
-  `hiccough` is just `hiccup` syntax.
+  `hiccough` is just `hiccup` syntax but with some custom tags and attributes.
 
   # Arguments
     - `doc`: SVGDocument to place the tags into.
@@ -287,15 +320,15 @@
   The SVGDocument."
   ^SVGDocument
   [^SVGDocument doc hiccough]
-  (postwalk
-   (fn [e]
+  (postwalk-noassoc
+   (fn [_ e]
      (cond
        (map? e)
-       (walk/postwalk (fn [x] (if (map? x) (update-keys x kebab-case->camel-case) x))  e)
+       [nil (walk/postwalk (fn [x] (if (map? x) (update-keys x kebab-case->camel-case) x))  e)]
 
        (tag? e)
        ;; Create the tag and add children, attributes.
-       (when-let [[tag attrs? children]
+       (if-let [[tag attrs? children]
                   (let [[tag & attrs-and-children] e]
                     (when tag
                       (if (map? (first attrs-and-children))
@@ -305,10 +338,10 @@
          (let [elem
                (let [tag-str (name tag)
                      tag-ns (namespace tag)
-                     [tag-name & tag-parts] (str/split tag-str #"[.]|[#]")
-                     [id classes] (if (str/includes? tag-str "#")
-                                    [(first tag-parts) (str/join " " (rest tag-parts))]
-                                    [nil (str/join " " tag-parts)])
+                     [tag-name & tag-parts] (cstr/split tag-str #"[.]|[#]")
+                     [id classes] (if (cstr/includes? tag-str "#")
+                                    [(first tag-parts) (cstr/join " " (rest tag-parts))]
+                                    [nil (cstr/join " " tag-parts)])
                      elem (if (= tag :svg)
                             (.getDocumentElement doc)
                             (if tag-ns
@@ -317,7 +350,7 @@
                  ;; Destructure the class name into tag name, namespace, classes, id.
                  (when id
                    (set-attr! elem "id" id))
-                 (when-not (str/blank? classes)
+                 (when-not (cstr/blank? classes)
                    (set-attr! elem "class" classes))
                  elem)]
 
@@ -346,10 +379,12 @@
 
                :else
                (add-child! elem (create-text-node doc (str node)))))
-           elem))
+           [nil elem])
+         [nil e])
 
        :else
-       e))
+       [nil e]))
+   nil
    hiccough)
   doc)
 

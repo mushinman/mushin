@@ -21,6 +21,11 @@
   (doto (affine-transform tx1)
     (.concatenate tx2)))
 
+(defn translate-transform
+  ^AffineTransform
+  [^AffineTransform tx ^double dx ^double dy]
+  (concatenate-transforms tx (get-translate-transform dx dy)))
+
 (defn get-translate-x
   ^double
   [^AffineTransform tx]
@@ -30,3 +35,14 @@
   ^double
   [^AffineTransform tx]
   (.getTranslateY tx))
+
+
+(defn get-scale-x
+  ^double
+  [^AffineTransform tx]
+  (.getScaleX tx))
+
+(defn get-scale-y
+  ^double
+  [^AffineTransform tx]
+  (.getScaleY tx))

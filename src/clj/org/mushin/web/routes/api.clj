@@ -6,9 +6,11 @@
    [org.mushin.web.middleware.formats :as formats]
    [org.mushin.web.middleware.state :as state]
    [org.mushin.web.middleware.decode :as decode]
+   [org.mushin.web.utils :refer [id-schema]]
    [integrant.core :as ig]
    [ring.util.response :as resp]
    [org.mushin.web.middleware.auth :as auth]
+   [org.mushin.web.controllers.statuses :as statuses]
    [org.mushin.web.middleware.cache-control :as cache-control]
    [reitit.coercion.malli :as malli]
    [reitit.ring.coercion :as coercion]
@@ -111,7 +113,6 @@
      ["/add-media"
       {:post {:handler (partial self/add-media! opts)}}]
 
-
      ["/relationships"
 
       ["/following"
@@ -130,28 +131,34 @@
       ["/:id"
        ["/follow"
         {:post {:handler (partial self/follow-user! opts)
-                :parameters {:path [:map [:id :uuid]]}}}]
+                :parameters {:path id-schema}}}]
 
        ["/unfollow"
         {:post {:handler (partial self/unfollow-user! opts)
-                :parameters {:path [:map [:id :uuid]]}}}]
+                :parameters {:path id-schema}}}]
        ["/mute"
         {:post {:handler (partial self/mute-user! opts)
-                :parameters {:path [:map [:id :uuid]]}}}]
+                :parameters {:path id-schema}}}]
        ["/unmute"
         {:post {:handler (partial self/unmute-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
+               :parameters {:path id-schema}}}]
        ["/block"
         {:post {:handler (partial self/block-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]
+               :parameters {:path id-schema}}}]
        ["/unblock"
         {:post {:handler (partial self/unblock-user! opts)
-               :parameters {:path [:map [:id :uuid]]}}}]]]]
+               :parameters {:path id-schema}}}]]]]
 
     ["/users"
+     {:middleware [(partial auth/wrap-optional-authenticate-user opts)]}
      ["/create"
       {:post {:handler (partial users/create-user! opts)
               :parameters {:body users/create-user-body}}}]]
+
+    ["/statuses/:id"
+     {:get {:handler (partial statuses/get-status opts)
+            :parameters {:path id-schema
+                         :query statuses/get-status-query-schema}}}]
 
 
     ;; ["/statuses/timeline/:nickname"

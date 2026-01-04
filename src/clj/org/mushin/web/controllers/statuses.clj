@@ -1,7 +1,7 @@
 (ns org.mushin.web.controllers.statuses
   (:require [ring.util.http-response :refer [unauthorized! created ok not-found! accepted no-content bad-request!]]
-            [org.mushin.db.statuses :as db]
-            [org.mushin.db.users :as user-db]
+            [org.mushin.db.statuses :as db-statuses]
+            [org.mushin.db.users :as users]
             [clojure.tools.logging :as log]
             [org.mushin.web.auth-utils :as auth-utils]
             [org.mushin.db.util :as db-u]
@@ -80,6 +80,36 @@
      [:merge layer-base
       [:map [:panel [:enum :effect]]
        [:content [:enum :brush :pencil :splatter]]]]]]])
+
+(def get-status-query-schema
+  [:map
+   [:encoding {:optional true} db-statuses/status-encodings-schema]])
+
+(defn get-status
+  [{:keys [xtdb-node]}
+   {{:keys [user-id]} :session
+    {{:keys [id]} :path
+     {:keys [encoding]} :query} :parameters}]
+  (if-let [{:keys [permission status] :as _}
+           (db-statuses/get-status-primary-content-for-user xtdb-node id user-id encoding)]
+    (case permission
+      :blocked
+      (unauthorized! {:error :unauthorized-access
+                      :error-reason :user-has-blocked
+                      :resource-type :status
+                      :resource-id id})
+
+      :locked
+      (unauthorized! {:error :unauthorized-access
+                      :error-reason :user-locked
+                      :resource-type :status
+                      :resource-id id})
+
+      :allowed
+      (ok {:status status}))
+    (not-found! {:error :resource-not-found
+                 :resource-type :status
+                 :resource-id id})))
 
 ;; (defn- comic-tag?
 ;;   [node]

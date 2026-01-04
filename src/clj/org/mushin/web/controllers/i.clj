@@ -9,6 +9,7 @@
             [lambdaisland.uri :refer [join]]
             [org.mushin.db.media :as media]
             [org.mushin.db.resource-meta :as res-meta]
+            [org.mushin.multimedia.svg :as svg]
             [org.mushin.files :as files]
             [clojure.tools.logging :as log]
             [org.mushin.db.likes :as likes]
@@ -68,11 +69,11 @@
    [:comic
     [:map
      [:type :keyword]
-     [:content  {:optional true} [:vector [:every :any]]]]]
+     [:content  {:optional true} :any]]]
    [:microblog
     [:map
      [:type :keyword]
-     [:content  {:optional true} [:every :any]]]]
+     [:content  {:optional true} :any]]]
    [:meme
     [:map
      [:type :keyword]
@@ -114,96 +115,19 @@
     :keys [mushin/async?]}]
   ;; TODO also invalidate the session state for the deleted user.
   (log/info {:event :delete-me :user-id user-id})
-  (let [nick (:nickname (users/get-user-by-id xtdb-node user-id))]
-    (log/info {:delete-me-part2 "yup" :nick nick})
+  (let [nick (:nickname (users/get-user-by-id xtdb-node user-id))
+        delete-tx [(users/delete-user-tx user-id)
+                   (statuses/delete-users-statuses-tx user-id)]]
     (when-not (users/check-nickname-and-password xtdb-node nick password)
       (unauthorized! {:error :invalid-password}))
     (if async?
       (do
-        (db/submit-tx xtdb-node (users/delete-user-tx user-id))
+        (db/compose-and-submit-txs! xtdb-node delete-tx)
         (accepted))
       (do
-        (db/execute-tx xtdb-node (users/delete-user-tx user-id))
+        (db/compose-and-execute-txs! xtdb-node delete-tx)
         (no-content)))))
 
-(defn href-verifier
-  [href]
-  (try
-    (and
-     (not (re-matches #"(?i)^\s*(javascript|data)\:.*" href))
-     (URI. href))
-    (catch Throwable _
-      nil)))
-
-(defn- href-tag-verifier
-  "Return href verifier if the attr is :href, else nil."
-  [attr]
-  (when (= attr :href)
-    href-verifier))
-
-;; :tag, {attrs} -> [:tag {attrs}], or [:tag], or nil
-;; 
-
-(defn- resource-src-converter
-  [db-con tag {:keys [src]}]
-  (when src ;; src tag is required.
-    [tag (if-let [res-metadata (res-meta/get-resource-by-id db-con src)]
-           {:src (res-metadata :location)}
-           (bad-request! {:error :non-existant-img
-                          :file-name src}))]))
-
-(defn- microblog-verifier-map
-  [db-con tag]
-  (case tag
-    :a href-tag-verifier
-
-    :img (partial resource-src-converter db-con)
-
-    ;; Tags with no supported attributes.
-    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
-    (fn [tag _]
-      [tag])
-
-    ;; Unrecognized tag.
-    nil))
-
-(defn- ensure-positive
-  [n attr tag]
-  (if (and (number? n)
-           (pos? n)
-           (not (Double/isInfinite (double num))))
-    n
-    (bad-request! {:error :invalid-attribtue
-                   :attr attr
-                   :value n
-                   :tag tag})))
-
-(defn- comic-verifier-map
-  [db-con tag]
-  (case tag
-    :a href-tag-verifier
-
-    :img
-    (fn [db-con tag {:keys [src width height x y]}]
-      (let [{:keys [location]} (res-meta/get-resource-by-id db-con src)]
-        (if (and src width height location)
-          [tag {:src location
-                :width (ensure-positive width :width tag)
-                :height (ensure-positive height :height tag)
-                :x (ensure-positive x :x tag)
-                :y (ensure-positive y :y tag)}]
-          (bad-request! {:error :invalid-img-tag
-                         :file-name src}))))
-
-    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
-    (fn [tag {:keys [src width height x y]}]
-      (if (and src width height x y)
-        [tag {:width (ensure-positive width :width tag)
-              :height (ensure-positive height :height tag)
-              :x (ensure-positive x :x tag)
-              :y (ensure-positive y :y tag)}]
-        (bad-request! {:error :invalid-img-tag
-                       :file-name src})))))
 
 (defn submit-and-accept
   [xtdb-node txs loc]
@@ -222,11 +146,11 @@
 (defn create-microblog!
   [db-con self async? {:keys [content]}]
   (let [[{:keys [mentions]} blog]
-        (h/sanitize-hiccough content
-                             (partial microblog-verifier-map db-con)
-                             false
-                             (fn [user-name]
-                               (users/get-user-by-name db-con user-name)))
+        (h/sanitize-microblog-hiccough
+         content
+         false
+         (fn [user-name]
+           (users/get-user-by-name db-con user-name)))
 
         {:keys [ap-id]} (users/get-user-by-id db-con self)
         status (statuses/create-status self {:hiccup blog
@@ -261,28 +185,21 @@
 
 (defn create-comic!
   [db-con self async? {:keys [content]}]
-  (let [[{:keys [mentions]} panels]
-        (acc/mapv-acc (fn [acc panel]
-                        (let [[panel-acc sanitized-panel]
-                              (h/sanitize-hiccough panel
-                                             (partial microblog-verifier-map db-con)
-                                             false
-                                             (fn [user-name]
-                                               (users/get-user-by-name db-con user-name))
-                                             acc)]
-                          ;; Wrap the sanitized output in a :panel tag.
-                          [panel-acc [:panel sanitized-panel]]))
-                      h/default-hiccough-accumulator
-                      content)
-
-        comic (into [:comic] panels)
+  (let [[{:keys [mentions]} [comic svg-doc]]
+        (h/sanitize-comic-hiccough
+         content
+         false
+         (fn [user-name]
+           (users/get-user-by-name db-con user-name))
+         (fn [resource-id]
+           (res-meta/get-resource-by-id db-con resource-id)))
 
         {:keys [ap-id]} (users/get-user-by-id db-con self)
         status (statuses/create-status self
                                        {:hiccup comic
-                                        ;; TODO
-                                        :svg []}
-                                       :comic (join ap-id "./statuses/")
+                                        :svg (svg/doc->string svg-doc)}
+                                       :comic :svg
+                                       (join ap-id "./statuses/")
                                        :mentions (into #{} (map :xt/id (vals mentions))))]
 
     (if async? ; TODO respond with full URI
@@ -438,13 +355,6 @@
     (xt/execute-tx xtdb-node [(rel/delete-realtion-tx :mute user-id id)]))
   (no-content))
 
-(defn get-status
-  [{:keys xtdb-node}
-   {{:keys [user-id]} :session
-    {{:keys [id]} :path} :parameters}]
-  (if-let [status (statuses/get-statuses-by-id xtdb-node id)]
-    status)
-  (cond (users/check-user-can-view-user xtdb-node user-id ())))
 
 (defn unblock-user!
   [{:keys [xtdb-node]}

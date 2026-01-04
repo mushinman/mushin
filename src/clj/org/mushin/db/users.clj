@@ -6,7 +6,6 @@
             [org.mushin.db.authorization :as authz]
             [org.mushin.crypt.password :as crypt]
             [java-time.api :as jt]
-            [org.mushin.db.statuses :as statuses]
             [malli.experimental.time :as mallt]
             [org.mushin.utils :refer [to-java-uri]]))
 
@@ -68,7 +67,7 @@
     [:last-logged-in-at       (mallt/-zoned-date-time-schema)] ; TODO maybe move to a new table for user events?
     authz/authorization-object-schema]})
 
-(def safe-user-columns
+(def ^:private safe-user-columns
   "A list of columns that are safe to return in the API (e.g. not the password)."
   '[xt/id log-counter nickname display-name avatar banner ap-id bio state privacy-level local? joined-at last-logged-in-at])
 
@@ -91,10 +90,12 @@
   [db-con ids]
   (db-util/lookup-by-ids db-con :mushin.db/users ids))
 
-(defn check-user-id-exists? [xtdb-node user-id]
+(defn check-user-id-exists?
+  [xtdb-node user-id]
   (db-util/record-exists? xtdb-node :mushin.db/users user-id))
 
-(defn check-user-nickname-exists? [xtdb-node nickname]
+(defn check-user-nickname-exists?
+  [xtdb-node nickname]
   (db-util/lookup-exists-any? xtdb-node :mushin.db/users {:nickname nickname}))
 
 (defn get-user-by-name
@@ -108,7 +109,8 @@
       first
       :xt/id))
 
-(defn create-local-user [nickname password ap-id avatar-uri banner-uri bio display-name & email]
+(defn create-local-user
+  [nickname password ap-id avatar-uri banner-uri bio display-name & email]
   (let [now (jt/zoned-date-time)]
     (cond-> (merge
              {:xt/id (uuid/v7)
@@ -149,7 +151,6 @@
   [[:patch-docs :mushin.db/users {:xt/id user-id
                                   :password-hash ""
                                   :state {:type :tombstone}}]
-   (statuses/inter-users-statuses-tx user-id)
    (db-util/delete-where
     :mushin.db/actor-roles
     (xt/template (from :mushin.db/actor-roles [{:actor-id ~user-id}])))
@@ -163,8 +164,8 @@
   "Check if the viewer can view the viewee.
 
   # Arguments
-   - `xtdb-node`: XTDB node
-   - `viewer-id`: ID of the user attempting to view the viewee.
+   - `db-con`: Database connection.
+   - `viewer-id?`: ID of the user attempting to view the viewee. Can be `nil`.
    - `viewee-id`: ID of the user who is being viewed by the viewer.
 
   # Return value
@@ -174,35 +175,56 @@
   | `:locked`  | The viewee has a locked account, and the viewer does not permissions to view it. |
   | `:allowed` | The viewee can view the viewee.                                                  |
   "
-  [xtdb-node viewer-id viewee-id]
+  [db-con viewer-id? viewee-id]
   (->
-   (xt/q
-    xtdb-node
-    (xt/template
-     (->
-      (unify
-       (from :mushin.db/users [{:xt/id ~viewer-id} {:local? viewer-local?}])
-       (from :mushin.db/users [{:xt/id ~viewee-id} {:privacy-level viewee-privacy-level}]))
-      (with
-       {:blocked? (exists? (from :mushin.db/relationships [{:type :block :source ~viewee-id :target ~viewer-id}]))
-        :followed? (exists? (from :mushin.db/relationships [{:type :follow :source ~viewer-id :target ~viewee-id}]))})
-      ;; As of XTDB 2.0.0 we need this second (with) expression because if-some and let don't work
-      ;; (see https://github.com/xtdb/xtdb/issues/3179), and you can't use symbols defined in a (with)
-      ;; inside the same expression.
-      ;; TODO change to a if-some when the above bug is fixed.
-      (with
-       {:reject-reason
-        (cond
-          blocked? :blocked
-          (or (and (= viewee-privacy-level :locked) (not followed?))
-              (and (= viewee-privacy-level :open-instance) (not viewer-local?)))
-          :locked
-          ;; The "true" isn't required but it shuts up lsp.
-          true false)})
-      (return {:result
-               (if reject-reason
-                 reject-reason
-                 :allowed)}))))
+   (if viewer-id?
+     (xt/q
+      db-con
+      [(xt/template
+        (fn [viewer-id viewee-id]
+          (->
+           (unify
+            (from :mushin.db/users [{:xt/id viewer-id} {:local? viewer-local?}])
+            (from :mushin.db/users [{:xt/id viewee-id} {:privacy-level viewee-privacy-level}]))
+           (with
+            {:blocked? (exists? (from :mushin.db/relationships [{:type :block :source viewee-id :target viewer-id}]))
+             :followed? (exists? (from :mushin.db/relationships [{:type :follow :source viewer-id :target viewee-id}]))})
+           ;; As of XTDB 2.0.0 we need this second (with) expression because if-some and let don't work
+           ;; (see https://github.com/xtdb/xtdb/issues/3179), and you can't use symbols defined in a (with)
+           ;; inside the same expression.
+           ;; TODO change to a if-some when the above bug is fixed.
+           (with
+            {:reject-reason
+             (cond
+               blocked? :blocked
+               (or (and (= viewee-privacy-level :locked) (not followed?))
+                   (and (= viewee-privacy-level :open-instance) (not viewer-local?)))
+               :locked
+               ;; The "true" isn't required but it shuts up lsp.
+               true false)})
+           (return {:result
+                    (if reject-reason
+                      reject-reason
+                      :allowed)}))))
+       viewer-id? viewee-id])
+     ;; No viewer.
+     (xt/q
+      db-con
+      [(xt/template
+        (fn [viewee-id]
+          (->
+           (from :mushin.db/users [{:xt/id viewee-id} {:privacy-level viewee-privacy-level}])
+           ;; As of XTDB 2.0.0 we need this second (with) expression because if-some and let don't work
+           ;; (see https://github.com/xtdb/xtdb/issues/3179), and you can't use symbols defined in a (with)
+           ;; inside the same expression.
+           ;; TODO change to a if-some when the above bug is fixed.
+           (return {:result
+                    (if (or (= viewee-privacy-level :locked)
+                            (= viewee-privacy-level :open-instance))
+                      :locked
+                      :allowed)}))))
+       viewee-id]))
+   
    first
    :result))
 

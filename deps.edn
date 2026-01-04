@@ -42,8 +42,8 @@
            lambdaisland/uri {:mvn/version "1.19.155"}
 
            ;; DB.
-           com.xtdb/xtdb-core               {:mvn/version "2.0.0"}
-           com.xtdb/xtdb-api                {:mvn/version "2.0.0"}
+           com.xtdb/xtdb-core               {:mvn/version "2.1.0"}
+           com.xtdb/xtdb-api                {:mvn/version "2.1.0"}
            com.github.seancorfield/honeysql {:mvn/version "2.7.1340"}
 
            ;; Auth, signing, hashing, security.
@@ -86,11 +86,19 @@
                                     :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED" "-Dclojure.compile.path=target/classes"]}
            :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.1.0"}}
                    :main-opts  ["-m" "nrepl.cmdline" "-i"]
-                   :jvm-opts   ["--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED"]}
+                   :jvm-opts   ["--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED"
+                                "--sun-misc-unsafe-memory-access=allow"
+                                "-Dio.netty.tryReflectionSetAccessible=true"
+                                "--enable-native-access=ALL-UNNAMED"
+                                "--add-opens=java.base/java.nio=ALL-UNNAMED"]}
            :cider {:extra-deps {nrepl/nrepl       {:mvn/version "1.1.0"}
                                 cider/cider-nrepl {:mvn/version "0.45.0"}}
                    :main-opts  ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]" "-i"]
-                   :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED"]}
+                   :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                                "--sun-misc-unsafe-memory-access=allow"
+                                "-Dio.netty.tryReflectionSetAccessible=true"
+                                "--enable-native-access=ALL-UNNAMED"
+                                "--add-opens=java.base/java.nio=ALL-UNNAMED"]}
 
            :test {:extra-deps  {criterium/criterium                  {:mvn/version "0.4.6"}
                                 expound/expound                      {:mvn/version "0.9.0"}
@@ -110,4 +118,8 @@
                   :extra-paths ["env/dev/clj" "env/dev/resources" "env/test/resources" "test/clj"]
                   :main-opts   ["-e" "(require 'pjstadig.humane-test-output) (pjstadig.humane-test-output/activate!)"
                                 "-m" "cognitect.test-runner"]
-                  :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED"]}}}
+                  :jvm-opts   ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                               "--sun-misc-unsafe-memory-access=allow"
+                                "-Dio.netty.tryReflectionSetAccessible=true"
+                                "--enable-native-access=ALL-UNNAMED"
+                                "--add-opens=java.base/java.nio=ALL-UNNAMED"]}}}

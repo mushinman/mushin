@@ -129,14 +129,6 @@
              (= effect :allow))
            effects)))))
 
-(defn object-tags
-  [xtdb-node table object-id]
-  (->
-   (xt/q xtdb-node (xt/template
-                   (from ~table [tags {:xt/id ~object-id}])))
-   first
-   :tags))
-
 (defn permissions-allow?
   [perms action object-type]
   (case object-type

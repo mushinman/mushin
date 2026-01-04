@@ -28,7 +28,7 @@
       (xt/execute-tx node [[:put-docs :mushin.db/users typical-user]
                            [:put-docs :mushin.db/statuses typical-status typical-status-2]])
       ;; Delete all posts.
-      (xt/execute-tx node [(st/inter-users-statuses-tx (:xt/id typical-user))])
+      (xt/execute-tx node [(st/delete-users-statuses-tx (:xt/id typical-user))])
       (is (zero?
            (count
             (xt/q

@@ -1,7 +1,17 @@
 (ns org.mushin.hiccough
   (:require [org.mushin.acc :refer [postwalk-noassoc mapv-acc]]
-            [clojure.string :as cstr])
-  (:import [java.util.regex Matcher]))
+            [org.mushin.multimedia.svg :as svg]
+            [org.mushin.geom :as geom]
+            [org.mushin.db.resource-meta :as res-meta]
+            [clojure.string :as cstr]
+            [ring.util.response :as res])
+  (:import [java.util.regex Matcher]
+           [java.net URI]))
+
+(def ^:private panel-width 1080.0)
+
+(def ^:private panel-height 1920.0)
+
 
 (def mentions-regex
   "Regex for matching mentions (e.g. @user)."
@@ -34,6 +44,152 @@
                             :original-text (subs s (.start matcher) (.end matcher))}))
                (.end matcher))))))
 
+(defn- is-positive?
+  "Returns true if `n` is a number type, is positive or zero, and is not infinite."
+  [n]
+  (and (number? n)
+       (or (pos? n) (zero? n))
+       (not (Double/isInfinite (double n)))))
+
+(defn- valid-uri?
+  "Returns true if `uri` is a valid non-javascript URI." 
+  [uri]
+  (try
+    (and
+     (not (re-matches #"(?i)^\s*(javascript|data)\:.*" uri))
+     (URI. uri))
+    (catch Throwable _
+      false)))
+
+(defn- lookup-resource
+  "Lookup a resource according to its ID, using a resource cache.
+
+  # Arguments
+  - `get-resource`: A function that takes in a resource ID and returns a URI to that resource.
+  - `resource-map-cache`: Cached results for `get-resource`. Must be assocable.
+  - `resource-id`: The resource ID to fetch a URI to.
+
+  # Return value
+  A 2-member tuple with a new cache in the first position and the result URI in the second."
+  [get-resource resource-map-cache resource-id]
+  (if-let [res (resource-map-cache resource-id)]
+    [resource-map-cache res]
+    (let [res (get-resource resource-id)]
+      [(assoc resource-map-cache resource-id res) res])))
+
+(defn- validate-comic-tag
+  "Validate a tag and an attribute.
+
+  # Arguments
+  - `get-resource`: A function that takes in a resource ID and returns a URI to that resource.
+  - `resource-map-cache`: Cached results for `get-resource`. Must be assocable.
+  - `tag`: The tag to validate.
+  - `attrs`: An assocable of attributes for the tag.
+
+  # Return value
+  A 2-member tuple with a new cache in the first position and the result in the second.
+
+  The validated tag will be a vector with a tag and maybe an attribute assocable. Or `nil`
+  if the tag was rejected.
+  "
+  [resource-map-cache get-resource tag attrs]
+  (case tag
+    ;; Just verify that href is a valid URI (and exists).
+    :a [resource-map-cache
+        (when-let [href (:href attrs)]
+          (when (valid-uri? href)
+            [:a {:href href}]))]
+
+    ;; Validate resource.
+    :image
+    (let [{:keys [src width height x y]}
+          attrs
+
+          [resource-map-cache location]
+          (lookup-resource get-resource resource-map-cache src)]
+      [resource-map-cache
+       (when (and src (is-positive? width) (is-positive? height) location
+                  (is-positive? x) (is-positive? y))
+         [tag {:src location
+               :width width 
+               :height height 
+               :x x 
+               :y y}])])
+
+    ;; Text.
+    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
+    (let [{:keys [width height x y]} attrs]
+      [resource-map-cache 
+       (when (and (is-positive? width) (is-positive? height)
+                  (is-positive? x) (is-positive? y))
+         [tag {:width width 
+               :height height 
+               :x x 
+               :y y}])])
+
+    :rect
+    (let [{:keys [width height x y fill stroke stroke-width]} attrs]
+      [resource-map-cache 
+       (when (and (is-positive? width) (is-positive? height)
+                  (is-positive? x) (is-positive? y) fill stroke
+                  (is-positive? stroke-width))
+         [tag {:width width 
+               :height height 
+               :x x 
+               :y y
+               :fill fill
+               :stroke stroke
+               :stroke-width stroke-width}])])
+
+
+    ;; Ignore attributes.
+    (:comic :panel)
+    [resource-map-cache [tag]]
+
+    :else
+    [resource-map-cache nil]))
+
+(defn- validate-microblog-tag
+  "Validate a tag and an attribute.
+
+  # Arguments
+  - `get-resource`: A function that takes in a resource ID and returns a URI to that resource.
+  - `resource-map-cache`: Cached results for `get-resource`. Must be assocable.
+  - `tag`: The tag to validate.
+  - `attrs`: An assocable of attributes for the tag.
+
+  # Return value
+  A 2-member tuple with a new cache in the first position and the result in the second.
+
+  The validated tag will be a vector with a tag and maybe an attribute assocable. Or `nil`
+  if the tag was rejected.
+  "
+  [resource-map-cache get-resource tag attrs]
+  (case tag
+    ;; Just verify that href is a valid URI (and exists).
+    :a [resource-map-cache
+        (when-let [href (:href attrs)]
+          (when (valid-uri? href)
+            [:a {:href href}]))]
+
+    ;; Validate resource.
+    :image
+    (let [{:keys [src]}
+          attrs
+
+          [resource-map-cache location]
+          (lookup-resource get-resource resource-map-cache src)]
+      [resource-map-cache
+       (when (and src location)
+         [tag {:src location}])])
+
+    ;; Ignore attributes.
+    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong :div)
+    [resource-map-cache [tag]]
+
+    :else
+    [resource-map-cache nil]))
+
 (defn- tag?
   "Determine if `e` is a SVG tag in hiccough syntax.
 
@@ -45,103 +201,278 @@
   [e]
   (and (vector? e) (keyword? (first e))))
 
-(def default-hiccough-accumulator {:mentions {}})
 
-(defn sanitize-hiccough
-  "Sanitize hiccough syntax into valid hiccup. Filters elements and attributes based off
-  a whitelist. Convert @ mentions into links. Returns tuple of information relating to
-  the hiccup and sanitized hiccup.
+(defn sanitize-comic-hiccough
+  "Sanitize hiccough syntax for comics.
 
   # Arguments
-  - `hiccough`: Hiccough syntax to sanitize
-  - `whitelist`: A function that takes 1 argument: a hiccup tag (e.g. `:p`) and returns
-  `nil` if the tag is not whitelisted, else returns a function. That function takes
-  2 arguments: the tag and a map of attributes, and should return a tag with a new
-  attributes map, or just a tag, or nil of the tag should be removed.
-  - `ids-and-classes?`: True if hiccough should allow hiccup style ids and classes
-  (e.g. `:p#id.class`), false if not. If false: all ids and classes are removed.
-  - `account-name-to-link:` A function of one argument: an account nickname or a
-  fully qualified name (e.g. `nickname` or `nickname@domain.org`), and returns a URI
-  to the account resource.
+  - `hiccough`: Comic hiccough syntax to sanitize.
+  - `ids-and-classes?`: If true, keep IDs and classes in the hiccough. If false, remove them.
+  - `account-name-to-link`: A function that takes in a nickname, which could be fully qualifed,
+  and returns a URI to the account referenced by the nickname, or nil if the account doesn't exist.
+  - `res-id-to-res`: A function that takes in a resource ID and returns a link to the resource object,
+  or nil if the resource object does not exist.
 
-  # Return
-  Returns a tuple. In the first column is extra information about the hiccough.
-  The sanitized hiccough is in the second column.
+  # Return value
+  A 2-member tuple containing metadata in the first position and the result in the second.
 
-  The extra information is of the following form:
-  | Key         | Type                  | Value                                                                                              |
-  |:------------|:----------------------|:---------------------------------------------------------------------------------------------------|
-  | `:mentions` | Map[string -> string] | Map where each key is a nickname or fully qualified name, and each value is a URI to that resource |
-  |             |                       |                                                                                                    |
+  The metadata has the following format:
+| Key                | Type                 | Meaning                                                                   |
+|:-------------------|:---------------------|:--------------------------------------------------------------------------|
+| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a URI to the account resource |
+| `:resource-cache`  | Map of string -> URI | Map of resource IDs to a URI to that resource                             |
+| `:panel-transform` | AffineTransform      | A transform to the bottom to the top of the final panel                   |
+
+  The result is itself a 2-member tuple. The sanitized hiccough is in the first position, and a SVG document of the comic
+  is in the second position.
   "
-  ([hiccough whitelist ids-and-classes? account-name-to-link initial-acc]
-  (postwalk-noassoc
-   (fn [{:keys [mentions] :as acc} e]
-     (cond
-       (or (map? e)
-           (keyword? e)
-           (number? e)
-           (boolean? e)
-           (string? e))
-       [acc e]
+  [hiccough ids-and-classes? account-name-to-link res-id-to-res]
+  (let [doc (svg/create-doc)
+        [acc [hiccup _]]
+        (postwalk-noassoc
+         (fn [{:keys [mentions panel-transform resource-cache] :as acc} e]
+           (cond
+             ;; Do not process yet.
+             (or (map? e)
+                 (keyword? e)
+                 (string? e))
+             [acc e]
 
-       (tag? e)
-       (let [[tag attrs? children]
-             (let [[tag & attrs-and-children] e]
-               (if (map? (first attrs-and-children))
-                 [tag (first attrs-and-children) (vec (rest attrs-and-children))]
-                 [tag nil (vec attrs-and-children)]))
+             ;; Convert to a tuple of the e and a text node.
+             (or (number? e)
+                 (boolean? e))
+             [acc [e (svg/create-text-node doc (str e))]]
+                 
+                 
+
+             ;; Since this function produces both hiccup and a SVG document result when we
+             ;; return a tuple of processed hiccup and a SVG node, e.g. [:p "Hello world"]
+             ;; becomes [[:p "Hello world"] Text{"Hello world"}].
+             (tag? e)
+             (let [[tag attrs? children]
+                   (let [[tag & attrs-and-children] e]
+                     (if (map? (first attrs-and-children))
+                       [tag (first attrs-and-children) (vec (rest attrs-and-children))]
+                       [tag nil (vec attrs-and-children)]))
+
+                   ;; Process child nodes: convert @mentions into links, etc..
+                   ;; If not a mention the children will be tuples of the text and a SVG node.
+                   [mentions children]
+                   (reduce
+                    (fn [[mentions new-children] child]
+                      (cond
+                        (string? child)
+                        (let [[mentions processed-text]
+                              ;; Mentions->links.
+                              (mapv-acc
+                               (fn [mentions msg-part]
+                                 (cond
+                                   (string? msg-part)
+                                   [mentions [msg-part (svg/create-text-node doc msg-part)]]
+
+                                   ;; Mention map.
+                                   (map? msg-part)
+                                   (let [{:keys [target original-text]} msg-part
+
+                                         {:keys [ap-id] :as user}
+                                         (or (mentions target)
+                                             (account-name-to-link target))]
+                                     (if user
+                                       [(assoc mentions target user)
+                                        [[:a {:href ap-id} target] (svg/create-a-tag doc ap-id target)]]
+                                       ;; Return the original text back if the user couldn't be found.
+                                       [mentions original-text]))))
+                               mentions
+                               (split-by-mentions child))]
+                          [mentions (into new-children processed-text)])
+
+                        :else
+                        [mentions (conj new-children child)]))
+                    [mentions []]
+                    children)
+
+                   just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))
+
+                   [resource-cache verified-tag]
+                   (validate-comic-tag resource-cache res-id-to-res just-tag attrs?)]
+               (if verified-tag
+                 (let [[just-tag attrs] verified-tag
+                       [elem panel-transform] ; SVG node and accumulator changes.
+                       (case tag
+                         :comic
+                         [(let [svg-elem (.getDocumentElement doc)]
+                            ;; The aspect ratio is 9:16 for each panel, so the height is
+                            ;; panel-height * number of panels.
+                            (svg/set-attr! svg-elem "viewBox" (svg/viewbox-str 0 0 panel-width
+                                                                               (* panel-height (- (count e) 1))))
+                            (svg/set-attr! svg-elem "preserveAspectRatio" "xMidYMid meet")
+                            svg-elem)
+                          panel-transform]
+
+                         :panel
+                         [(let [g (svg/create-elem doc "g")]
+                            ;; Translate the panel down the comic to its proper place.
+                            (svg/set-attr! g "transform" (svg/affine-transform->transform-str panel-transform))
+                            g)
+                          ;; Move the panel transform down one panel.
+                          (geom/translate-transform panel-transform 0.0 panel-height)]
+
+                         :p
+                         [(svg/create-elem doc "text") panel-transform]
+
+                         ;; Any other tag.
+                         [(svg/create-elem doc just-tag)
+                          panel-transform])
 
 
-             ;; Process child nodes: convert @mentions into links, etc..
-             [mentions children]
-             (reduce
-              (fn [[mentions new-children] child]
-                (cond
-                  (string? child)
-                  (let [[mentions processed-text]
-                        ;; Mentions->links.
-                        (mapv-acc
-                         (fn [mentions msg-part]
-                           (cond
-                             ;; Not a mention.
-                             (string? msg-part)
-                             [mentions msg-part]
+                       hiccup-children
+                       (for [[hiccup-child svg-child] (filter some? children)]
+                         ;; Separate out hiccup and SVG children.
+                         ;; Nil children are ignored.
+                         (do
+                           (svg/add-child! elem svg-child)
+                           hiccup-child))]
 
-                             ;; Mention map.
-                             (map? msg-part)
-                             (let [{:keys [target original-text]} msg-part
+                   (when attrs
+                     ;; Add attributes to the tag.
+                     (doseq [[k v] attrs]
+                       (let [tag-namespace (namespace k)
+                             tag-name (name k)
+                             v (str v)]
+                         (if tag-namespace
+                           (svg/set-attr-ns! elem tag-namespace tag-name v)
+                           (svg/set-attr! elem tag-name v)))))
 
-                                   {:keys [ap-id] :as user}
-                                   (or (mentions target)
-                                       (account-name-to-link target))]
-                               (if user
-                                 ;; Return the original text back if the user couldn't be found.
-                                 [(assoc mentions target user)
-                                  [:a {:href ap-id} target]]
-                                 [mentions original-text]))))
-                         mentions
-                         (split-by-mentions child))]
-                    [mentions (into new-children processed-text)])
 
-                  :else
-                  [mentions (conj new-children child)]))
-              [mentions []]
-              children)
+                   [;; Update the accumulator.
+                    (assoc acc
+                           :mentions mentions
+                           :panel-transform panel-transform
+                           :resource-cache resource-cache)
+                    ;; Hiccup and SVG tag.
+                    [(cond-> [(if ids-and-classes? tag just-tag)]
+                       (not-empty attrs) (conj attrs)
+                       (not-empty hiccup-children) (into hiccup-children))
+                     elem]])
+                 [acc nil]))
 
-             just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))]
-         [(assoc acc :mentions mentions) ; Update the accumulator.
-          ;; If no verifier or the verifier returns nil: remove the tag.
-          (when-let [verifier (whitelist just-tag)]
-            (when-let [[just-tag attrs] (verifier tag attrs?)]
-              (let [children (->> children (remove nil?) vec)]
-                (cond-> [(if ids-and-classes? tag just-tag)]
-                  (not-empty attrs) (conj attrs)
-                  (not-empty children) (into children)))))])
+             :else
+             (throw (ex-info "Invalid hiccough syntax" {:at e}))))
+         {:mentions {}
+          :panel-transform (geom/affine-transform) ; For moving comic panels down the SVG.
+          :resource-cache {} ; Cache of used resources. ID -> link.
+          }
+         hiccough)]
+    [acc [hiccup doc]]))
 
-       :else
-       (throw (ex-info "Invalid hiccough syntax" {:at e}))))
-   initial-acc
-   hiccough))
-  ([hiccough whitelist ids-and-classes? account-name-to-link]
-   (sanitize-hiccough hiccough whitelist ids-and-classes? account-name-to-link default-hiccough-accumulator)))
+(defn sanitize-microblog-hiccough
+  "Sanitize hiccough syntax for microblogs.
+
+  # Arguments
+  - `hiccough`: Microblog hiccough syntax to sanitize.
+  - `ids-and-classes?`: If true, keep IDs and classes in the hiccough. If false, remove them.
+  - `account-name-to-link`: A function that takes in a nickname, which could be fully qualifed,
+  and returns a URI to the account referenced by the nickname, or nil if the account doesn't exist.
+  - `res-id-to-res`: A function that takes in a resource ID and returns a link to the resource object,
+  or nil if the resource object does not exist.
+
+  # Return value
+  A 2-member tuple containing metadata in the first position and the result in the second.
+
+  The metadata has the following format:
+| Key                | Type                 | Meaning                                                                   |
+|:-------------------|:---------------------|:--------------------------------------------------------------------------|
+| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a URI to the account resource |
+| `:panel-transform` | AffineTransform      | A transform to the bottom to the top of the final panel                   |
+
+  The result is itself a 2-member tuple. The sanitized hiccough is in the first position, and a SVG document of the microblog
+  is in the second position.
+  "
+  [hiccough ids-and-classes? account-name-to-link res-id-to-res]
+  (let [[acc [hiccup]]
+        (postwalk-noassoc
+         (fn [{:keys [mentions panel-transform resource-cache] :as acc} e]
+           (cond
+             ;; Do not process yet.
+             (or (map? e)
+                 (keyword? e)
+                 (string? e))
+             [acc e]
+
+             ;; Convert to a tuple of the e and a text node.
+             (or (number? e)
+                 (boolean? e))
+             [acc [e]]
+                 
+                 
+
+             (tag? e)
+             (let [[tag attrs? children]
+                   (let [[tag & attrs-and-children] e]
+                     (if (map? (first attrs-and-children))
+                       [tag (first attrs-and-children) (vec (rest attrs-and-children))]
+                       [tag nil (vec attrs-and-children)]))
+
+                   ;; Process child nodes: convert @mentions into links, etc..
+                   [mentions children]
+                   (reduce
+                    (fn [[mentions new-children] child]
+                      (cond
+                        (string? child)
+                        (let [[mentions processed-text]
+                              ;; Mentions->links.
+                              (mapv-acc
+                               (fn [mentions msg-part]
+                                 (cond
+                                   (string? msg-part)
+                                   [mentions [msg-part]]
+
+                                   ;; Mention map.
+                                   (map? msg-part)
+                                   (let [{:keys [target original-text]} msg-part
+
+                                         {:keys [ap-id] :as user}
+                                         (or (mentions target)
+                                             (account-name-to-link target))]
+                                     (if user
+                                       [(assoc mentions target user)
+                                        [[:a {:href ap-id} target]]]
+                                       ;; Return the original text back if the user couldn't be found.
+                                       [mentions original-text]))))
+                               mentions
+                               (split-by-mentions child))]
+                          [mentions (into new-children processed-text)])
+
+                        :else
+                        [mentions (conj new-children child)]))
+                    [mentions []]
+                    children)
+
+                   just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))
+
+                   [resource-cache verified-tag]
+                   (validate-microblog-tag resource-cache res-id-to-res just-tag attrs?)]
+               (if verified-tag
+                 (let [[just-tag attrs] verified-tag
+                       hiccup-children
+                       (for [[hiccup-child] (filter some? children)]
+                         ;; Nil children are ignored.
+                           hiccup-child)]
+
+                   [;; Update the accumulator.
+                    (assoc acc
+                           :mentions mentions
+                           :panel-transform panel-transform
+                           :resource-cache resource-cache)
+                    [(cond-> [(if ids-and-classes? tag just-tag)]
+                       (not-empty attrs) (conj attrs)
+                       (not-empty hiccup-children) (into hiccup-children))]])
+                 [acc nil]))
+
+             :else
+             (throw (ex-info "Invalid hiccough syntax" {:at e}))))
+         {:mentions {}
+          :resource-cache {} ; Cache of used resources: ID -> link.
+          }
+         hiccough)]
+    [acc [hiccup]]))
