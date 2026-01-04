@@ -44,19 +44,20 @@
                             :original-text (subs s (.start matcher) (.end matcher))}))
                (.end matcher))))))
 
-(defn- is-positive?
-  "Returns true if `n` is a number type, is positive or zero, and is not infinite."
+(defn- non-negative?
+  "Returns true if `n` is a number type, is non-negative (>= 0), and is not infinite."
   [n]
   (and (number? n)
        (or (pos? n) (zero? n))
        (not (Double/isInfinite (double n)))))
 
 (defn- valid-uri?
-  "Returns true if `uri` is a valid non-javascript URI." 
+  "Returns true if `uri` is a valid URI that is not a dangerous scheme
+  (javascript:, vbscript:)."
   [uri]
   (try
     (and
-     (not (re-matches #"(?i)^\s*(javascript|data)\:.*" uri))
+     (not (re-matches #"(?i)^\s*(javascript|vbscript)\:.*" uri))
      (URI. uri))
     (catch Throwable _
       false)))
@@ -98,7 +99,7 @@
     :a [resource-map-cache
         (when-let [href (:href attrs)]
           (when (valid-uri? href)
-            [:a {:href href}]))]
+            [:a {:href href :rel "noopener noreferrer"}]))]
 
     ;; Validate resource.
     :image
@@ -108,8 +109,8 @@
           [resource-map-cache location]
           (lookup-resource get-resource resource-map-cache src)]
       [resource-map-cache
-       (when (and src (is-positive? width) (is-positive? height) location
-                  (is-positive? x) (is-positive? y))
+       (when (and src (non-negative? width) (non-negative? height) location
+                  (non-negative? x) (non-negative? y))
          [tag {:src location
                :width width 
                :height height 
@@ -120,8 +121,8 @@
     (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
     (let [{:keys [width height x y]} attrs]
       [resource-map-cache 
-       (when (and (is-positive? width) (is-positive? height)
-                  (is-positive? x) (is-positive? y))
+       (when (and (non-negative? width) (non-negative? height)
+                  (non-negative? x) (non-negative? y))
          [tag {:width width 
                :height height 
                :x x 
@@ -130,9 +131,9 @@
     :rect
     (let [{:keys [width height x y fill stroke stroke-width]} attrs]
       [resource-map-cache 
-       (when (and (is-positive? width) (is-positive? height)
-                  (is-positive? x) (is-positive? y) fill stroke
-                  (is-positive? stroke-width))
+       (when (and (non-negative? width) (non-negative? height)
+                  (non-negative? x) (non-negative? y) fill stroke
+                  (non-negative? stroke-width))
          [tag {:width width 
                :height height 
                :x x 
@@ -146,7 +147,7 @@
     (:comic :panel)
     [resource-map-cache [tag]]
 
-    :else
+    ;; Default: reject unknown tags.
     [resource-map-cache nil]))
 
 (defn- validate-microblog-tag
@@ -170,7 +171,7 @@
     :a [resource-map-cache
         (when-let [href (:href attrs)]
           (when (valid-uri? href)
-            [:a {:href href}]))]
+            [:a {:href href :rel "noopener noreferrer"}]))]
 
     ;; Validate resource.
     :image
@@ -187,7 +188,7 @@
     (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong :div)
     [resource-map-cache [tag]]
 
-    :else
+    ;; Default: reject unknown tags.
     [resource-map-cache nil]))
 
 (defn- tag?
@@ -279,7 +280,8 @@
                                              (account-name-to-link target))]
                                      (if user
                                        [(assoc mentions target user)
-                                        [[:a {:href ap-id} target] (svg/create-a-tag doc ap-id target)]]
+                                        [[:a {:href ap-id :rel "noopener noreferrer"} target]
+                                        (svg/create-a-tag doc ap-id target)]]
                                        ;; Return the original text back if the user couldn't be found.
                                        [mentions original-text]))))
                                mentions
@@ -304,7 +306,7 @@
                             ;; The aspect ratio is 9:16 for each panel, so the height is
                             ;; panel-height * number of panels.
                             (svg/set-attr! svg-elem "viewBox" (svg/viewbox-str 0 0 panel-width
-                                                                               (* panel-height (- (count e) 1))))
+                                                                               (* panel-height (count children))))
                             (svg/set-attr! svg-elem "preserveAspectRatio" "xMidYMid meet")
                             svg-elem)
                           panel-transform]
@@ -326,12 +328,10 @@
 
 
                        hiccup-children
-                       (for [[hiccup-child svg-child] (filter some? children)]
-                         ;; Separate out hiccup and SVG children.
-                         ;; Nil children are ignored.
-                         (do
-                           (svg/add-child! elem svg-child)
-                           hiccup-child))]
+                       (mapv (fn [[hiccup-child svg-child]]
+                               (svg/add-child! elem svg-child)
+                               hiccup-child)
+                             (filter some? children))]
 
                    (when attrs
                      ;; Add attributes to the tag.
@@ -380,18 +380,17 @@
   A 2-member tuple containing metadata in the first position and the result in the second.
 
   The metadata has the following format:
-| Key                | Type                 | Meaning                                                                   |
-|:-------------------|:---------------------|:--------------------------------------------------------------------------|
-| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a URI to the account resource |
-| `:panel-transform` | AffineTransform      | A transform to the bottom to the top of the final panel                   |
+| Key               | Type                 | Meaning                                                                    |
+|:------------------|:---------------------|:---------------------------------------------------------------------------|
+| `:mentions`       | Map of string -> URI | Map of (maybe fully qualified) nicknames to a URI to the account resource |
+| `:resource-cache` | Map of string -> URI | Map of resource IDs to a URI to that resource                              |
 
-  The result is itself a 2-member tuple. The sanitized hiccough is in the first position, and a SVG document of the microblog
-  is in the second position.
+  The result is a single-element vector containing the sanitized hiccough.
   "
   [hiccough ids-and-classes? account-name-to-link res-id-to-res]
   (let [[acc [hiccup]]
         (postwalk-noassoc
-         (fn [{:keys [mentions panel-transform resource-cache] :as acc} e]
+         (fn [{:keys [mentions resource-cache] :as acc} e]
            (cond
              ;; Do not process yet.
              (or (map? e)
@@ -436,7 +435,7 @@
                                              (account-name-to-link target))]
                                      (if user
                                        [(assoc mentions target user)
-                                        [[:a {:href ap-id} target]]]
+                                        [[:a {:href ap-id :rel "noopener noreferrer"} target]]]
                                        ;; Return the original text back if the user couldn't be found.
                                        [mentions original-text]))))
                                mentions
@@ -462,7 +461,6 @@
                    [;; Update the accumulator.
                     (assoc acc
                            :mentions mentions
-                           :panel-transform panel-transform
                            :resource-cache resource-cache)
                     [(cond-> [(if ids-and-classes? tag just-tag)]
                        (not-empty attrs) (conj attrs)
@@ -472,7 +470,6 @@
              :else
              (throw (ex-info "Invalid hiccough syntax" {:at e}))))
          {:mentions {}
-          :resource-cache {} ; Cache of used resources: ID -> link.
-          }
+          :resource-cache {}}
          hiccough)]
     [acc [hiccup]]))
