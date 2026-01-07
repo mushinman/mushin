@@ -220,7 +220,7 @@
   The metadata has the following format:
 | Key                | Type                 | Meaning                                                                   |
 |:-------------------|:---------------------|:--------------------------------------------------------------------------|
-| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a URI to the account resource |
+| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a user struct                 |
 | `:resource-cache`  | Map of string -> URI | Map of resource IDs to a URI to that resource                             |
 | `:panel-transform` | AffineTransform      | A transform to the bottom to the top of the final panel                   |
 
@@ -302,7 +302,7 @@
                        [elem panel-transform] ; SVG node and accumulator changes.
                        (case tag
                          :comic
-                         [(let [svg-elem (.getDocumentElement doc)]
+                         [(let [svg-elem (svg/get-root doc)]
                             ;; The aspect ratio is 9:16 for each panel, so the height is
                             ;; panel-height * number of panels.
                             (svg/set-attr! svg-elem "viewBox" (svg/viewbox-str 0 0 panel-width
@@ -365,6 +365,159 @@
          hiccough)]
     [acc [hiccup doc]]))
 
+(defn sanitize-meme-hiccough
+  "Sanitize hiccough syntax for comics.
+
+  # Arguments
+  - `hiccough`: Comic hiccough syntax to sanitize.
+  - `ids-and-classes?`: If true, keep IDs and classes in the hiccough. If false, remove them.
+  - `account-name-to-link`: A function that takes in a nickname, which could be fully qualifed,
+  and returns a URI to the account referenced by the nickname, or nil if the account doesn't exist.
+  - `res-id-to-res`: A function that takes in a resource ID and returns a link to the resource object,
+  or nil if the resource object does not exist.
+
+  # Return value
+  A 2-member tuple containing metadata in the first position and the result in the second.
+
+  The metadata has the following format:
+| Key                | Type                 | Meaning                                                                   |
+|:-------------------|:---------------------|:--------------------------------------------------------------------------|
+| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a user struct                 |
+
+  The result is itself a 2-member tuple. The sanitized hiccough is in the first position, and a SVG document of the comic
+  is in the second position.
+  "
+  [hiccough ids-and-classes? account-name-to-link res-id-to-res
+   image-pixel-width image-pixel-height caption-pixel-height]
+  (let [doc (svg/create-doc)
+        [acc [hiccup _]]
+        (postwalk-noassoc
+         (fn [{:keys [mentions] :as acc} e]
+           (cond
+             ;; Do not process yet.
+             (or (map? e)
+                 (keyword? e)
+                 (string? e))
+             [acc e]
+
+             ;; Convert to a tuple of the e and a text node.
+             (or (number? e)
+                 (boolean? e))
+             [acc [e (svg/create-text-node doc (str e))]]
+                 
+                 
+
+             ;; Since this function produces both hiccup and a SVG document result when we
+             ;; return a tuple of processed hiccup and a SVG node, e.g. [:p "Hello world"]
+             ;; becomes [[:p "Hello world"] Text{"Hello world"}].
+             (tag? e)
+             (let [[tag attrs? children]
+                   (let [[tag & attrs-and-children] e]
+                     (if (map? (first attrs-and-children))
+                       [tag (first attrs-and-children) (vec (rest attrs-and-children))]
+                       [tag nil (vec attrs-and-children)]))
+
+                   ;; Process child nodes: convert @mentions into links, etc..
+                   ;; If not a mention the children will be tuples of the text and a SVG node.
+                   [mentions children]
+                   (reduce
+                    (fn [[mentions new-children] child]
+                      (cond
+                        (string? child)
+                        (let [[mentions processed-text]
+                              ;; Mentions->links.
+                              (mapv-acc
+                               (fn [mentions msg-part]
+                                 (cond
+                                   (string? msg-part)
+                                   [mentions [msg-part (svg/create-text-node doc msg-part)]]
+
+                                   ;; Mention map.
+                                   (map? msg-part)
+                                   (let [{:keys [target original-text]} msg-part
+
+                                         {:keys [ap-id] :as user}
+                                         (or (mentions target)
+                                             (account-name-to-link target))]
+                                     (if user
+                                       [(assoc mentions target user)
+                                        [[:a {:href ap-id :rel "noopener noreferrer"} target]
+                                        (svg/create-a-tag doc ap-id target)]]
+                                       ;; Return the original text back if the user couldn't be found.
+                                       [mentions original-text]))))
+                               mentions
+                               (split-by-mentions child))]
+                          [mentions (into new-children processed-text)])
+
+                        :else
+                        [mentions (conj new-children child)]))
+                    [mentions []]
+                    children)
+
+                   just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))
+
+                   verified-tag
+                   (validate-comic-tag res-id-to-res just-tag attrs?)]
+               (if verified-tag
+                 (let [[just-tag attrs] verified-tag
+                       [elem] ; SVG node and accumulator changes.
+                       (case tag
+                         :meme
+                         [(let [svg-elem (svg/get-root doc)
+                                virtual-width 1000
+                                img-virtual-height (* virtual-width (/ (double image-pixel-height) (double image-pixel-width)))
+                                caption-virtual-height (* img-virtual-height (/ (double caption-pixel-height) (double image-pixel-height)))
+                                total-virtual-height (+ caption-virtual-height img-virtual-height)]
+                            (svg/set-attr! svg-elem "width" "100%")
+                            ;; We preserve the aspect ratio of the original image.
+                            (svg/set-attr!
+                             svg-elem
+                             "viewBox"
+                             (svg/viewbox-str 0 0 virtual-width total-virtual-height))
+                            (svg/set-attr! svg-elem "preserveAspectRatio" "xMidYMid meet")
+                            svg-elem)]
+
+                         :p
+                         [(svg/create-elem doc "text")]
+
+                         ;; Any other tag.
+                         [(svg/create-elem doc just-tag)])
+
+
+                       hiccup-children
+                       (mapv (fn [[hiccup-child svg-child]]
+                               (svg/add-child! elem svg-child)
+                               hiccup-child)
+                             (filter some? children))]
+
+                   (when attrs
+                     ;; Add attributes to the tag.
+                     (doseq [[k v] attrs]
+                       (let [tag-namespace (namespace k)
+                             tag-name (name k)
+                             v (str v)]
+                         (if tag-namespace
+                           (svg/set-attr-ns! elem tag-namespace tag-name v)
+                           (svg/set-attr! elem tag-name v)))))
+
+
+                   [;; Update the accumulator.
+                    (assoc acc :mentions mentions)
+                    ;; Hiccup and SVG tag.
+                    [(cond-> [(if ids-and-classes? tag just-tag)]
+                       (not-empty attrs) (conj attrs)
+                       (not-empty hiccup-children) (into hiccup-children))
+                     elem]])
+                 [acc nil]))
+
+             :else
+             (throw (ex-info "Invalid hiccough syntax" {:at e}))))
+         {:mentions {}
+          :panel-transform (geom/affine-transform) ; For moving comic panels down the SVG.
+          }
+         hiccough)]
+    [acc [hiccup doc]]))
+
 (defn sanitize-microblog-hiccough
   "Sanitize hiccough syntax for microblogs.
 
@@ -382,7 +535,7 @@
   The metadata has the following format:
 | Key               | Type                 | Meaning                                                                    |
 |:------------------|:---------------------|:---------------------------------------------------------------------------|
-| `:mentions`       | Map of string -> URI | Map of (maybe fully qualified) nicknames to a URI to the account resource |
+| `:mentions`        | Map of string -> URI | Map of (maybe fully qualified) nicknames to a user struct               |
 | `:resource-cache` | Map of string -> URI | Map of resource IDs to a URI to that resource                              |
 
   The result is a single-element vector containing the sanitized hiccough.
@@ -473,3 +626,5 @@
           :resource-cache {}}
          hiccough)]
     [acc [hiccup]]))
+
+

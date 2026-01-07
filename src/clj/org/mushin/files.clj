@@ -71,8 +71,14 @@
       (File. (URI. (str p)))
       (throw (ex-info "only file:// is supported" {:uri p})))
 
-    :else (throw (ex-info "unsupported path type" {:obj p
-                                                   :type (class p)}))))
+    :else nil))
+
+(defn coerce-to-file!
+  ^File
+  [p]
+  (or (coerce-to-file p)
+      (throw (ex-info "unsupported path type" {:obj p
+                                               :type (class p)}))))
 
 (defn coerce-to-path
   ^Path
@@ -101,8 +107,15 @@
       (Path/of (URI. (str p)))
       (throw (ex-info "only file:// is supported" {:uri p})))
 
-    :else (throw (ex-info "unsupported path type" {:obj p
-                                                   :type (class p)}))))
+    :else nil))
+
+
+(defn coerce-to-path!
+  ^Path
+  [p]
+  (or (coerce-to-path p)
+      (throw (ex-info "unsupported path type" {:obj p
+                                               :type (class p)}))))
 
 (defn sanitize-path
   [p]
@@ -190,7 +203,7 @@
   (str (with-open [stream
                    (if (instance? InputStream file)
                      (TikaInputStream/get ^InputStream file)
-                     (TikaInputStream/get ^Path (coerce-to-path file)))]
+                     (TikaInputStream/get ^Path (coerce-to-path! file)))]
          (-> (.getDetector tika)
              (.detect stream (Metadata.))))))
 
@@ -321,14 +334,14 @@
 
 (defn is-child-of
   [file dir]
-  (exists (path-combine (coerce-to-path dir) (get-file-name (coerce-to-path file)))))
+  (exists (path-combine (coerce-to-path! dir) (get-file-name (coerce-to-path! file)))))
 
 (defn relativize
   "Get a relative path between two paths."
   [p1 p2]
-  (.relativize (coerce-to-path p1) (coerce-to-path p2)))
+  (.relativize (coerce-to-path! p1) (coerce-to-path! p2)))
 
 (defn path-parts
   "Get a sequence of path parts in `p`."
   [p]
-  (iterator-seq (.iterator (coerce-to-path p))))
+  (iterator-seq (.iterator (coerce-to-path! p))))

@@ -22,7 +22,7 @@
        user-id req
 
        (nil? (get headers "authorization"))
-       nil
+       req
 
        :else
        (let [[auth-type auth-arg] (cstr/split (get headers "authorization") #"\s+")]

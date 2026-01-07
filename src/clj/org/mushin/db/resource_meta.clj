@@ -15,6 +15,7 @@
    [:map {:closed true}
     [:xt/id                   :string]
     [:location                'uri?]
+    ;[:mime-type               :string]
     [:created-at              (mallt/-zoned-date-time-schema)]]})
 
 (defn create-resource-meta-doc
@@ -31,12 +32,18 @@
    [:location]))
 
 (defn get-resource-by-id
-  [con name]
-  (db-util/lookup-first
-   con
-   :mushin.db/resource-meta
-   '[xt/id location created-at]
-   {:xt/id name}))
+  [con id]
+  (->
+   (xt/q con [(xt/template
+               (fn [id]
+                 (from :mushin.db/resource-meta [* {:xt/id id}])
+                 (limit 1)))
+              id])
+   first))
+
+(defn resource-exists?
+  [db-con id]
+  (db-util/record-exists? db-con :mushin.db/resource-meta id))
 
 (defn delete-resource-meta-tx
   [name]

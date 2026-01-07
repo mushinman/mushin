@@ -8,6 +8,9 @@
             [hiccup2.core :as hiccup]
             [lambdaisland.uri :refer [join]]
             [org.mushin.db.media :as media]
+            [org.mushin.multimedia.img :as img]
+            [org.mushin.multimedia.gif :as gif]
+            [org.mushin.resources.resource-map :as res-map]
             [org.mushin.db.resource-meta :as res-meta]
             [org.mushin.multimedia.svg :as svg]
             [org.mushin.files :as files]
@@ -63,21 +66,41 @@
                               [:map [:from any-timestamp]]
                               [:map [:to any-timestamp]]]]])
 
+(def check-css-color-schema
+  [:re #"^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"])
+
 (def statuses-body-schema
   "Schema for creating statuses."
-  [:multi {:dispatch :type}
-   [:comic
-    [:map
-     [:type :keyword]
-     [:content  {:optional true} :any]]]
-   [:microblog
-    [:map
-     [:type :keyword]
-     [:content  {:optional true} :any]]]
-   [:meme
-    [:map
-     [:type :keyword]
-     [:text :string]]]])
+  [:map
+   [:reply-to {:optional true} :uuid]
+   [:payload
+    [:multi {:dispatch :type}
+     [:comic
+      [:map
+       [:type :keyword]
+       [:content  {:optional true} :any]]]
+     [:microblog
+      [:map
+       [:type :keyword]
+       [:content  {:optional true} :any]]]
+     [:meme
+      [:map
+       [:type           :keyword]
+       [:base-img       :string]
+       [:alt  :string]
+       [:caption 
+        [:map
+         [:background  check-css-color-schema]
+         [:foreground  check-css-color-schema]
+         [:font-size   :int]
+         [:caption-size :int]
+         [:font-family :string]
+         [:lines
+          [:vector
+           [:map
+            [:text   :string]
+            [:x      :int]
+            [:y      :int]]]]]]]]]]])
 
 (def media-schema
   "Schema for uploading media files."
@@ -111,7 +134,8 @@
 
 (defn delete-self!
   [{:keys [xtdb-node]}
-   {{{:keys [password]} :body} :parameters {:keys [user-id]} :session
+   {{{:keys [password]} :body} :parameters
+    {:keys [user-id]} :session
     :keys [mushin/async?]}]
   ;; TODO also invalidate the session state for the deleted user.
   (log/info {:event :delete-me :user-id user-id})
@@ -142,79 +166,121 @@
    (db/compose-and-execute-txs! xtdb-node txs)
    (ok)))
 
+(defn- get-user-by-name
+  [db-con user-name]
+  (users/get-user-by-name db-con user-name))
 
-(defn create-microblog!
-  [db-con self async? {:keys [content]}]
-  (let [[{:keys [mentions]} blog]
+(defn- get-res-uri
+  [db-con resource-id]
+  (:location (res-meta/get-resource-by-id db-con resource-id)))
+
+(defn create-microblog
+  [db-con self reply-to {:keys [content]}]
+  (let [[{:keys [mentions resource-cache]} blog]
         (h/sanitize-microblog-hiccough
          content
          false
-         (fn [user-name]
-           (users/get-user-by-name db-con user-name)))
+         (partial get-user-by-name db-con)
+         (partial get-res-uri db-con))
 
-        {:keys [ap-id]} (users/get-user-by-id db-con self)
-        status (statuses/create-status self {:hiccup blog
-                                             :html (str (hiccup/html blog))}
-                                       :microblog :hiccup (join ap-id "./statuses/")
-                                       :mentions (into #{} (map :xt/id (vals mentions))))]
+        {:keys [ap-id]} (users/get-user-by-id db-con self)]
+    (statuses/create-status self {:hiccup blog
+                                  :html (str (hiccup/html blog))}
+                            :microblog :hiccup (join ap-id "./statuses/")
+                            (into #{} (keys resource-cache))
+                            :mentions (into #{} (map :xt/id (vals mentions)))
+                            :reply-to reply-to)))
 
-    (if async? ; TODO respond with full URI
-      (submit-and-accept db-con (statuses/insert-status-tx status) "TODO")
-      (exec-and-ok db-con (statuses/insert-status-tx status) status))))
+(defn create-meme
+  [db-con self resource-map reply-to {:keys [base-img caption]}]
+  (if-let [{:keys [location xt/id]} (res-meta/get-resource-by-id db-con base-img)]
+    (let [{:keys [lines background foreground font-family font-size caption-size]}
+          caption
 
-(defn create-meme!
-  [xtdb-node async? resource-map {{:keys [tempfile]} :media
-                                  :keys [text]}]
-  (if-not (files/is-child-of tempfile files/tmp-dir)
-    (bad-request! {:error :invalid-upload
-                   :message "Something about the upload is wrong"})
-    (try
-      (let [content-type (files/detect-content-type tempfile)]
-        (case content-type
-          ("image/jpeg" "image/png")
-          (media/create-captioned-resource-from-static-image!
-           tempfile
-           resource-map
-           content-type
-           text)
-          (bad-request! {:error :invalid-content-type
-                         :message "The content type isn't supported"
-                         :content-type content-type})))
-      (finally
-        (files/delete-if-exists tempfile)))))
+          [width height resource resource-type]
+          (with-open [resource-file (res-map/open resource-map id)]
+            (let [res-type (files/detect-content-type resource-file)]
+              (case res-type
+                ("image/png" "image/jpeg")
+                (let [image (img/->buffered-image resource-file)
+                      _ (println "==============image=================" image resource-file)
+                      {:keys [width height]} (img/get-image-metadata image)]
+                  [width height image :image])
 
-(defn create-comic!
-  [db-con self async? {:keys [content]}]
-  (let [[{:keys [mentions]} [comic svg-doc]]
+                "image/gif"
+                (let [{:keys [width height] :as gif}
+                      (gif/get-gif-from-stream resource-file)]
+                  [width height gif :gif])
+
+                (bad-request! {:error :invalid-resource-type
+                               :resource-type res-type
+                               :message "The resource type is invalid"}))))
+
+          {:keys [ap-id]} (users/get-user-by-id db-con self)
+
+          hiccup
+          [:meme
+           [:caption {:background background
+                      :foreground foreground
+                      :font-family font-family
+                      :font-size font-size}
+            (for [{:keys [text x y]} lines]
+              [:p {:x x :y y} text])]
+           [:image {:href location}]]
+          
+          [{:keys [mentions]} svg-doc]
+          (h/sanitize-meme-hiccough
+           hiccup
+           false
+           (partial get-user-by-name db-con)
+           (partial get-res-uri db-con)
+           width height (* caption-size width))]
+      (statuses/create-status self {:hiccup hiccup
+                                    :svg (svg/doc->string svg-doc)}
+                              :microblog :svg (join ap-id "./statuses/")
+                              #{base-img}
+                              :mentions (into #{} (map :xt/id (vals mentions)))
+                              :reply-to reply-to))
+    (bad-request! {:error :no-resource
+                   :message "The resource you're trying to use does not exist"})))
+
+(defn create-comic
+  [db-con self reply-to {:keys [content]}]
+  (let [[{:keys [mentions resource-cache]} [comic svg-doc]]
         (h/sanitize-comic-hiccough
          content
          false
-         (fn [user-name]
-           (users/get-user-by-name db-con user-name))
-         (fn [resource-id]
-           (res-meta/get-resource-by-id db-con resource-id)))
+         (partial get-user-by-name db-con)
+         (partial get-res-uri db-con))
 
-        {:keys [ap-id]} (users/get-user-by-id db-con self)
-        status (statuses/create-status self
-                                       {:hiccup comic
-                                        :svg (svg/doc->string svg-doc)}
-                                       :comic :svg
-                                       (join ap-id "./statuses/")
-                                       :mentions (into #{} (map :xt/id (vals mentions))))]
-
-    (if async? ; TODO respond with full URI
-      (submit-and-accept db-con (statuses/insert-status-tx status) "TODO")
-      (exec-and-ok db-con (statuses/insert-status-tx status) status))))
+        {:keys [ap-id]} (users/get-user-by-id db-con self)]
+    (statuses/create-status
+     self
+     {:hiccup comic
+      :svg (svg/doc->string svg-doc)}
+     :comic :svg
+     (join ap-id "./statuses/")
+     (into #{} (keys resource-cache))
+     :mentions (into #{} (map :xt/id (vals mentions)))
+     :reply-to reply-to)))
 
 (defn create-status!
-  [{:keys [xtdb-node endpoint]}
-   {{{:keys [type] :as body} :body} :parameters
+  [{:keys [xtdb-node endpoint resource-map]}
+   {{{{:keys [type] :as payload} :payload :keys [reply-to] :as body} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
-  (case type
-    :comic (create-comic! xtdb-node user-id async? body)
-    :microblog (create-microblog! xtdb-node user-id async? body)
-    :meme (create-meme! xtdb-node async? body)))
+  (when (and reply-to
+             (not (statuses/living-status? xtdb-node type)))
+    (bad-request! {:error :status-does-not-exist
+                   :message "The post you're trying to reply to does not exist"}))
+  (let [status
+        (case type
+          :comic (create-comic xtdb-node user-id reply-to payload)
+          :microblog (create-microblog xtdb-node user-id reply-to payload)
+          :meme (create-meme xtdb-node user-id resource-map reply-to payload))]
+    (if async? ; TODO respond with full URI
+      (submit-and-accept xtdb-node (statuses/insert-status-tx status) "TODO")
+      (exec-and-ok xtdb-node (statuses/insert-status-tx status) status))))
 
 (defn add-media!
   [{:keys [resource-map]}

@@ -20,15 +20,18 @@
 
 (def statuses-schema
   "Schema for statuses.
-  | Key                | Type                              | Meaning                                                    |
-  |:-------------------|:----------------------------------|:-----------------------------------------------------------|
-  | `xt/id`            | UUID                              | Row Key                                                    |
-  | `primary-encoding` | keyword                           | The default post content encdoing, e.g. `:html`, `:hiccup` |
-  | `creator`          | UUID/Foreign key to `users` table | Owner of the status                                        |
-  | `reply-to`         | UUID/Key for `statuses` table     | Status that this status is a reply to                      |
-  | `created-at`       | Timestamp                         | The time a user created this post                          |
-  | `updated-at`       | Timestamp                         | The time a user edited this post                           |
-  | `content`          | Map                               | The content of the post                                    |
+  | Key                | Type                              | Meaning                                                            |
+  |:-------------------|:----------------------------------|:-------------------------------------------------------------------|
+  | `xt/id`            | UUID                              | Row Key                                                            |
+  | `primary-encoding` | keyword                           | The default post content encdoing, e.g. `:html`, `:hiccup`         |
+  | `creator`          | UUID/Foreign key to `users` table | Owner of the status                                                |
+  | `reply-to`         | UUID/Key for `statuses` table     | Status that this status is a reply to                              |
+  | `created-at`       | Timestamp                         | The time a user created this post                                  |
+  | `updated-at`       | Timestamp                         | The time a user edited this post                                   |
+  | `content`          | Map                               | The content of the post                                            |
+  | `ap-id`            | URI                               | ActivityPub ID/location of the status resource                     |
+  | `mentions`         | Set of UUID                       | Set of user IDs mentioned in the status                            |
+  | `resources`        | Set of UUID                       | Set of resource metadata IDs for each resources used in the status |
   `content` is a map where each key is a version of the post in some format, e.g. `:hiccup` for
   hiccup syntax, or `:html` for raw html, or `:svg`, etc..
   "
@@ -44,6 +47,7 @@
     timestamps/created-at
     timestamps/updated-at
     [:content                   :map]
+    [:resources                 [:set :uuid]]
     ;authz/authorization-object-schema
     ]})
 
@@ -69,7 +73,7 @@
     [:sql q (vec (concat [:tombstone] params))]))
 
 (defn create-status
-  [user-id content type primary-encoding ap-id-prefix &
+  [user-id content type primary-encoding ap-id-prefix resources &
    {:keys [reply-to created-at updated-at
            mentions]}]
   (let [now (jt/zoned-date-time)
@@ -150,60 +154,60 @@
   ([db-con creator-id & {:keys [n cursor reverse prev-page order-column]
                          :or {n 10
                               order-column :created-at}}]
-(let [;; Asc by default, and reverse and prev-page cancel each other out.
-        order-direction (if reverse :desc :asc)
+   (let [;; Asc by default, and reverse and prev-page cancel each other out.
+         order-direction (if reverse :desc :asc)
 
-        cursor-dir (if prev-page (if reverse :asc :desc) (if reverse :desc :asc))
+         cursor-dir (if prev-page (if reverse :asc :desc) (if reverse :desc :asc))
 
-        {[cursor-column-name cursor-value] :last :keys [cursor-id]} cursor
+         {[cursor-column-name cursor-value] :last :keys [cursor-id]} cursor
 
-        cursor-column-name (or cursor-column-name order-column :created-at) ; Default value.
+         cursor-column-name (or cursor-column-name order-column :created-at) ; Default value.
 
-        cursor-column (case cursor-column-name
-                        :created-at 'created-at
-                        :updated-at 'updated-at)
+         cursor-column (case cursor-column-name
+                         :created-at 'created-at
+                         :updated-at 'updated-at)
 
-        result
-        (xt/q
-         db-con
-         [(xt/template
-           (fn [cursor-value cursor-id n
-                backwards order-direction no-cursor
-                creator-id]
-             (->
-              (from :mushin.db/statuses [~@select-columns
-                                         {:creator creator-id}])
-              (where
-               (or no-cursor
-                   (if (or (and (not backwards) (= order-direction :asc))
-                           (and backwards (= order-direction :desc)))
-                     (or (> ~cursor-column cursor-value)
-                         (and (= ~cursor-column cursor-value) (> xt/id cursor-id)))
-                     (or (< ~cursor-column cursor-value)
-                         (and (= ~cursor-column cursor-value) (< xt/id cursor-id))))))
-              (order-by {:val ~cursor-column
-                         :dir ~cursor-dir
-                         :nulls :last}
-                        {:val xt/id
-                         :dir ~cursor-dir}) 
-              (limit n)
-              (with {:primary-content
-                     (case primary-encoding
-                       :resource (. content resource)
-                       :html (. content html)
-                       :svg (. content svg)
-                       :hiccup (. content hiccup))})
-              (without :content))))
-          cursor-value cursor-id n (boolean prev-page)
-          order-direction (not (boolean cursor)) creator-id])
+         result
+         (xt/q
+          db-con
+          [(xt/template
+            (fn [cursor-value cursor-id n
+                 backwards order-direction no-cursor
+                 creator-id]
+              (->
+               (from :mushin.db/statuses [~@select-columns
+                                          {:creator creator-id}])
+               (where
+                (or no-cursor
+                    (if (or (and (not backwards) (= order-direction :asc))
+                            (and backwards (= order-direction :desc)))
+                      (or (> ~cursor-column cursor-value)
+                          (and (= ~cursor-column cursor-value) (> xt/id cursor-id)))
+                      (or (< ~cursor-column cursor-value)
+                          (and (= ~cursor-column cursor-value) (< xt/id cursor-id))))))
+               (order-by {:val ~cursor-column
+                          :dir ~cursor-dir
+                          :nulls :last}
+                         {:val xt/id
+                          :dir ~cursor-dir}) 
+               (limit n)
+               (with {:primary-content
+                      (case primary-encoding
+                        :resource (. content resource)
+                        :html (. content html)
+                        :svg (. content svg)
+                        :hiccup (. content hiccup))})
+               (without :content))))
+           cursor-value cursor-id n (boolean prev-page)
+           order-direction (not (boolean cursor)) creator-id])
 
-        {:keys [xt/id created-at updated-at] :as last-row} (last result)]
-    (cond-> {:result result}
-      (or last-row (< n (count result)))
-      (assoc :cursor {:cursor-id id
-                      :last [cursor-column-name (case cursor-column-name
-                                                  :created-at created-at
-                                                  :updated-at updated-at)]})))))
+         {:keys [xt/id created-at updated-at] :as last-row} (last result)]
+     (cond-> {:result result}
+       (or last-row (< n (count result)))
+       (assoc :cursor {:cursor-id id
+                       :last [cursor-column-name (case cursor-column-name
+                                                   :created-at created-at
+                                                   :updated-at updated-at)]})))))
 
 (defn delete-all-posts-by-tx
   [creator-id]
@@ -216,6 +220,21 @@
 (defn get-status-by-id
   ([xtdb-node cols id] (db/lookup-by-id xtdb-node :mushin.db/statuses cols id))
   ([xtdb-node id] (get-status-by-id xtdb-node '[*] id)))
+
+
+(defn living-status?
+  "Check if status exists and is not a tombstone."
+  [db-con id]
+  (let [{:keys [alive?] :as result}
+        (xt/q
+         db-con
+         [(xt/template
+           (fn [id]
+             (-> (from :mushin.db/statuses [{:xt/id id :type type}])
+                 (limit 1)
+                 (return {:alive? (<> type :tombstone)}))))
+          id])]
+    (boolean (and (not-empty result) alive?))))
 
 (defn get-comments-for-status
   ([xtdb-node cols id] (xt/q xtdb-node (xt/template (from :mushin.db/statuses [~@cols {:reply-to ~id}]))))

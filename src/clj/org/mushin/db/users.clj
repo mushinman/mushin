@@ -9,12 +9,14 @@
             [malli.experimental.time :as mallt]
             [org.mushin.utils :refer [to-java-uri]]))
 
-(def nickname-regex "Regular that describes a valid nickname" #"\w+")
+(def nickname-regex
+  "Regular that describes a valid nickname"
+  #"\w+")
 
 
 (def nickname-schema
   "Schema for the nickname"
-  [:nickname [:and [:and [:string {:min 1 :max 32}] [:re nickname-regex]]]])
+  [:nickname [:re nickname-regex]])
 
 (def ^:private user-states-schema
   "Schema for user states.
@@ -96,7 +98,7 @@
 
 (defn check-user-nickname-exists?
   [xtdb-node nickname]
-  (db-util/lookup-exists-any? xtdb-node :mushin.db/users {:nickname nickname}))
+  (db-util/record-exists-q? xtdb-node :mushin.db/users {:nickname nickname}))
 
 (defn get-user-by-name
   ([xtdb-node nickname] (get-user-by-name xtdb-node safe-user-columns nickname))

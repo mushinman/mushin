@@ -15,15 +15,14 @@
    [:password [:string {:min 8 :max 128}]]
    [:avatar  {:description "mulitpart file" :optional true} :any]
    [:banner  {:description "mulitpart file" :optional true} :any]
-   db-users/nickname-schema
-   ; TODO recapcha
-   ])
+   db-users/nickname-schema])
 
 (defn create-user!
   [{:keys [xtdb-node resource-map endpoint]}
    {{{:keys [nickname password avatar banner bio display-name]
       :or {bio ""
-           display-name ""}} :body} :parameters :keys [mushin/async?]}]
+           display-name ""}} :body} :parameters
+    :keys [mushin/async?]}]
   (let [avatar (if avatar
                  (media/create-resource-from-static-image! (:tmpfile avatar)
                                                            ;(if (mime/is-supported-image-type? ))

@@ -97,11 +97,6 @@
   ([node table qs]
    (lookup-first node table '[*] qs)))
 
-(defn lookup-exists-any? [node table qs]
-  (boolean (first (xt/q node
-                        (xt/template (-> (from ~table [~qs])
-                                         (limit 1)))))))
-
 (defn check-attr-schema [attr schema value]
   (when-not (malli/validate schema value)
     (throw (ex-info "Value doesn't match attribute schema"
@@ -120,10 +115,31 @@
 (defn -malli-wrap [{:keys [value message] :as error}]
   (str "Invalid argument `" (pr-str value) "`: " message))
 
-(defn record-exists? [node table id]
-  (boolean (first (xt/q node (xt/template
-                              (-> (from ~table [{:xt/id ~id}])
-                                  (limit 1)))))))
+(defn record-exists-q?
+  [node table qs]
+  (->
+   (xt/q
+    node
+    (xt/template
+     (-> (from ~table [~qs])
+         (limit 1)
+         (return {:result true}))))
+   not-empty
+   boolean))
+
+(defn record-exists?
+  [node table id]
+   (->
+    (xt/q
+     node
+     [(xt/template
+       (fn [id]
+         (-> (from ~table [{:xt/id id}])
+             (limit 1)
+             (return {:result true}))))
+      id])
+    not-empty
+    boolean))
 
 (defn delete-where
   "Create a transaction part for a deleting documents based off a XTQL query.
@@ -199,7 +215,7 @@
   A vector of XTDB transactions."
   [table doc columns]
   ;; This is kinda ugly but so far as I know this is only way to do this.
-  [(assert-not-exists-tx table (select-keys doc columns))
+  [;(assert-not-exists-tx table (select-keys doc columns))
    [:put-docs table doc]])
 
 (defn compile-op-dispatch [node op]
@@ -305,6 +321,6 @@
   or nil.
 
   # Return value
-  See `submit-tx`."
+  See `execute-tx`."
   [con txs]
   (execute-tx con (apply compose-txs txs)))

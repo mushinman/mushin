@@ -34,7 +34,7 @@
            commons-validator/commons-validator {:mvn/version "1.10.1"}
 
            ;; Image codec transcoding.
-           io.sf.carte/echosvg-all {:mvn/version "2.2"}
+           io.sf.carte/echosvg-all {:mvn/version "2.3"}
 
            ;; UUID
            danlentz/clj-uuid {:mvn/version "0.2.0"}
