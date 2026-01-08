@@ -150,6 +150,35 @@
     ;; Default: reject unknown tags.
     [resource-map-cache nil]))
 
+(defn- validate-meme-tag
+  "Validate a tag and an attribute.
+
+  # Arguments
+  - `tag`: The tag to validate.
+  - `attrs`: An assocable of attributes for the tag.
+
+  # Return value
+  The validated tag will be a vector with a tag and maybe an attribute assocable. Or `nil`
+  if the tag was rejected.
+  "
+  [tag attrs]
+  (case tag
+    ;; Just verify that href is a valid URI (and exists).
+    :a 
+    (when-let [href (:href attrs)]
+      (when (valid-uri? href)
+        [:a {:href href :rel "noopener noreferrer"}]))
+
+    ;; Text.
+    (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
+    (let [{:keys [x y]} attrs]
+      (when (and (non-negative? x) (non-negative? y))
+        [tag {:x x 
+              :y y}]))
+
+    ;; Default: reject unknown tags.
+    nil))
+
 (defn- validate-microblog-tag
   "Validate a tag and an attribute.
 
@@ -387,7 +416,7 @@
   The result is itself a 2-member tuple. The sanitized hiccough is in the first position, and a SVG document of the comic
   is in the second position.
   "
-  [hiccough ids-and-classes? account-name-to-link res-id-to-res
+  [hiccough ids-and-classes? account-name-to-link
    image-pixel-width image-pixel-height caption-pixel-height]
   (let [doc (svg/create-doc)
         [acc [hiccup _]]
@@ -457,13 +486,13 @@
                    just-tag (keyword (first (cstr/split (name tag) #"[.]|[#]")))
 
                    verified-tag
-                   (validate-comic-tag res-id-to-res just-tag attrs?)]
+                   (validate-meme-tag just-tag attrs?)]
                (if verified-tag
                  (let [[just-tag attrs] verified-tag
-                       [elem] ; SVG node and accumulator changes.
+                       elem ; SVG node and accumulator changes.
                        (case tag
                          :meme
-                         [(let [svg-elem (svg/get-root doc)
+                         (let [svg-elem (svg/get-root doc)
                                 virtual-width 1000
                                 img-virtual-height (* virtual-width (/ (double image-pixel-height) (double image-pixel-width)))
                                 caption-virtual-height (* img-virtual-height (/ (double caption-pixel-height) (double image-pixel-height)))
@@ -475,16 +504,16 @@
                              "viewBox"
                              (svg/viewbox-str 0 0 virtual-width total-virtual-height))
                             (svg/set-attr! svg-elem "preserveAspectRatio" "xMidYMid meet")
-                            svg-elem)]
+                            svg-elem)
 
                          :p
-                         [(svg/create-elem doc "text")]
+                         (svg/create-elem doc "text")
 
                          ;; Any other tag.
-                         [(svg/create-elem doc just-tag)])
+                         (svg/create-elem doc just-tag))
 
 
-                       hiccup-children
+                       _
                        (mapv (fn [[hiccup-child svg-child]]
                                (svg/add-child! elem svg-child)
                                hiccup-child)
@@ -505,18 +534,15 @@
                     (assoc acc :mentions mentions)
                     ;; Hiccup and SVG tag.
                     [(cond-> [(if ids-and-classes? tag just-tag)]
-                       (not-empty attrs) (conj attrs)
-                       (not-empty hiccup-children) (into hiccup-children))
+                       (not-empty attrs) (conj attrs))
                      elem]])
                  [acc nil]))
 
              :else
              (throw (ex-info "Invalid hiccough syntax" {:at e}))))
-         {:mentions {}
-          :panel-transform (geom/affine-transform) ; For moving comic panels down the SVG.
-          }
+         {:mentions {}}
          hiccough)]
-    [acc [hiccup doc]]))
+    [acc doc]))
 
 (defn sanitize-microblog-hiccough
   "Sanitize hiccough syntax for microblogs.

@@ -13,7 +13,7 @@
             [org.mushin.db.util :as db-util]))
 
 (def status-types-schema
-  [:enum :text :image :animated-image :video :comic :microblog :tombstone])
+  [:enum :text :image :animated-image :video :comic :microblog :meme :tombstone])
 
 (def status-encodings-schema
   [:enum :hiccup :svg :html :resource])
@@ -47,7 +47,7 @@
     timestamps/created-at
     timestamps/updated-at
     [:content                   :map]
-    [:resources                 [:set :uuid]]
+    [:resources                 [:set :string]]
     ;authz/authorization-object-schema
     ]})
 
@@ -81,6 +81,7 @@
     (cond-> (merge {:xt/id      id
                     :type       type
                     :ap-id      (to-java-uri (join ap-id-prefix id))
+                    :resources  resources
                     :primary-encoding primary-encoding
                     :mentions   (or mentions #{})
                     :creator    user-id

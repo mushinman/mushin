@@ -15,13 +15,14 @@
    [:map {:closed true}
     [:xt/id                   :string]
     [:location                'uri?]
-    ;[:mime-type               :string]
+    [:mime-type               :string]
     [:created-at              (mallt/-zoned-date-time-schema)]]})
 
 (defn create-resource-meta-doc
-  [name location]
+  [name location mime-type]
   {:xt/id name 
    :location (to-java-uri location)
+   :mime-type mime-type
    :created-at (time/zoned-date-time)})
 
 (defn insert-resource-tx

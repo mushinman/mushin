@@ -36,7 +36,7 @@
 (defrecord FileSystemResourceMap
     [^Path base-path resource-map-url-base xtdb-node]
   interface/ResourceMap
-  (create! [this name resource-data]
+  (create! [this name resource-data mime-type]
     (let [resource-path (get-resource-file-path base-path name)
           resource-path-str (str resource-path)]
       (if-let [doc (interface/metadata this name)]
@@ -58,9 +58,11 @@
             (with-open [output-file (io/output-stream resource-path-str)]
               (io/copy resource-data output-file)))
 
-          (let [doc (res-meta/create-resource-meta-doc
-                     name
-                     (join resource-map-url-base (cstr/join "/" (get-resource-path-as-vec name))))]
+          (let [doc
+                (res-meta/create-resource-meta-doc
+                 name
+                 (join resource-map-url-base (cstr/join "/" (get-resource-path-as-vec name)))
+                 mime-type)]
             (db-util/compose-and-execute-txs! xtdb-node (res-meta/insert-resource-tx doc))
             doc)))))
   (delete! [_ name]

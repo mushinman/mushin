@@ -193,39 +193,40 @@
 
 (defn create-meme
   [db-con self resource-map reply-to {:keys [base-img caption]}]
-  (if-let [{:keys [location xt/id]} (res-meta/get-resource-by-id db-con base-img)]
+  (if-let [{:keys [location xt/id mime-type]}
+           (res-meta/get-resource-by-id db-con base-img)]
     (let [{:keys [lines background foreground font-family font-size caption-size]}
           caption
 
           [width height resource resource-type]
           (with-open [resource-file (res-map/open resource-map id)]
-            (let [res-type (files/detect-content-type resource-file)]
-              (case res-type
-                ("image/png" "image/jpeg")
-                (let [image (img/->buffered-image resource-file)
-                      _ (println "==============image=================" image resource-file)
-                      {:keys [width height]} (img/get-image-metadata image)]
-                  [width height image :image])
+            (case mime-type
+              ("image/png" "image/jpeg")
+              (let [image (img/->buffered-image resource-file)
+                    {:keys [width height]} (img/get-image-metadata image)]
+                [width height image :image])
 
-                "image/gif"
-                (let [{:keys [width height] :as gif}
-                      (gif/get-gif-from-stream resource-file)]
-                  [width height gif :gif])
+              "image/gif"
+              (let [{:keys [width height] :as gif}
+                    (gif/get-gif-from-stream resource-file)]
+                [width height gif :gif])
 
-                (bad-request! {:error :invalid-resource-type
-                               :resource-type res-type
-                               :message "The resource type is invalid"}))))
+              (bad-request! {:error :invalid-resource-type
+                             :resource-type mime-type
+                             :message "The resource type is invalid"})))
 
           {:keys [ap-id]} (users/get-user-by-id db-con self)
 
           hiccup
           [:meme
-           [:caption {:background background
-                      :foreground foreground
-                      :font-family font-family
-                      :font-size font-size}
+           (into
+            [:caption {:background background
+                       :foreground foreground
+                       :font-family font-family
+                       :font-size font-size}]
             (for [{:keys [text x y]} lines]
-              [:p {:x x :y y} text])]
+              [:p {:x x :y y} text]))
+           
            [:image {:href location}]]
           
           [{:keys [mentions]} svg-doc]
@@ -233,11 +234,10 @@
            hiccup
            false
            (partial get-user-by-name db-con)
-           (partial get-res-uri db-con)
            width height (* caption-size width))]
-      (statuses/create-status self {:hiccup hiccup
-                                    :svg (svg/doc->string svg-doc)}
-                              :microblog :svg (join ap-id "./statuses/")
+      (statuses/create-status self
+                              {:svg (svg/doc->string svg-doc)}
+                              :meme :svg (join ap-id "./statuses/")
                               #{base-img}
                               :mentions (into #{} (map :xt/id (vals mentions)))
                               :reply-to reply-to))

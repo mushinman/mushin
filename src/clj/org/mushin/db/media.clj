@@ -35,7 +35,7 @@
           (with-open [temp-output-file (io/output-stream (str output-file-path))
                       image-ios (ImageIO/createImageOutputStream temp-output-file)]
             (img/write-img-from-mime-type img mime-type image-ios))
-          (res/create! resource-map resource-name output-file-path)
+          (res/create! resource-map resource-name output-file-path mime-type)
           (finally
             (files/delete-if-exists output-file-path)))))))
 
@@ -70,7 +70,7 @@
 
       (if-let [metadata (res/metadata resource-map resource-name)]
         metadata
-        (res/create! resource-map resource-name output-file-path))
+        (res/create! resource-map resource-name output-file-path mime-type))
 
       (let [;; Save the captioned version of the image, the SVG.
             width (.getWidth img)
@@ -91,7 +91,7 @@
                                                           (res/to-uri resource-map resource-name) text caption-pixel-height)
                                            temp-svg)
                 (let [resource-name (str (digest/digest->b64u (digest/digest-file temp-svg)) ".svg")]
-                  (res/create! resource-map resource-name temp-svg))
+                  (res/create! resource-map resource-name temp-svg mime-type))
                 (finally
                   (files/delete-if-exists temp-svg))))]
         {:base-img resource-name :captioned-img rendered-caption-img-name :svg-doc caption-svg-name})
@@ -136,6 +136,6 @@
           (with-open [temp-output-file (io/output-stream (str output-file-path))
                       image-ios (ImageIO/createImageOutputStream temp-output-file)]
             (gif/write-gif-to-stream image-ios gif))
-          (res/create! resource-map resource-name output-file-path)
+          (res/create! resource-map resource-name output-file-path "image/gif")
           (finally
             (files/delete-if-exists output-file-path)))))))
