@@ -93,6 +93,9 @@
      {:middleware [(partial auth/wrap-authenticate-user opts)]}
      ["/who-am-i"
       {:get {:handler (partial self/get-user opts)}}]
+
+     ["/timeline"
+      {:get {:handler (partial self/get-timeline opts)}}]
      ;; TODO authorization middleware that checks the arguments and denies based off
      ["/delete-me"
       {:delete {:handler (partial self/delete-self! opts)

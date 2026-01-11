@@ -1,5 +1,6 @@
 (ns org.mushin.utils
-  (:import [java.net URI]))
+  (:import [java.net URI]
+           [java.text BreakIterator]))
 
 (defn to-java-uri
   [uri]
@@ -23,6 +24,16 @@
       `(let [~c ~coll]
          (or ~@(for [k keys] `(and (contains? ~c ~k)
                                    ~k)))))))
+
+(defn grapheme-count
+  ^long
+  [^String text]
+  (loop [it (doto (BreakIterator/getCharacterInstance)
+             (.setText text))
+         n 0]
+    (if (not= (.next it) BreakIterator/DONE)
+      (recur it (inc n))
+      n)))
 
 (defn contains-key?
   [coll key]

@@ -42,6 +42,7 @@
     [:xt/id                     :uuid]
     [:creator                   :uuid]
     [:reply-to {:optional true} :uuid]
+    [:character-count           :int]
     [:ap-id                     uri?]
     [:mentions                  [:set :uuid]]
     timestamps/created-at
@@ -54,7 +55,7 @@
 
 (def ^:private select-columns
   '[xt/id created-at updated-at creator type ap-id primary-encoding
-    mentions content])
+    mentions content character-count])
 
 (defn get-statuses-by-user
   [xtdb-node user-id]
@@ -73,13 +74,14 @@
     [:sql q (vec (concat [:tombstone] params))]))
 
 (defn create-status
-  [user-id content type primary-encoding ap-id-prefix resources &
+  [user-id content type primary-encoding ap-id-prefix resources character-count &
    {:keys [reply-to created-at updated-at
            mentions]}]
   (let [now (jt/zoned-date-time)
         id (random-uuid)]
     (cond-> (merge {:xt/id      id
                     :type       type
+                    :character-count character-count
                     :ap-id      (to-java-uri (join ap-id-prefix id))
                     :resources  resources
                     :primary-encoding primary-encoding

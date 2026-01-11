@@ -186,19 +186,10 @@
   [^File file]
   (.getPath file))
 
-(defn probe-content-type
-  "Probes the content type (mime type) of a file.
-
-  # Arguments
-  - `file-path`: The path to the file to probe for content type.
-
-  # Return
-  The mime type of the file at `file-path`, or nil if it could not be determined."
-  ^String
-  [file-path]
-  (Files/probeContentType (path (str file-path))))
-
 (defn detect-content-type
+  "Guess the mime type of a file based off its contents. `file` can be
+  any java file reference object like a string or path. If `file` is a stream
+  it will be consumed."
   [file]
   (str (with-open [stream
                    (if (instance? InputStream file)

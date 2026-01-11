@@ -77,12 +77,12 @@
     [:multi {:dispatch :type}
      [:comic
       [:map
-       [:type :keyword]
-       [:content  {:optional true} :any]]]
+       [:type     :keyword]
+       [:content  :any]]]
      [:microblog
       [:map
-       [:type :keyword]
-       [:content  {:optional true} :any]]]
+       [:type    :keyword]
+       [:content :any]]]
      [:meme
       [:map
        [:type           :keyword]
@@ -101,6 +101,9 @@
             [:text   :string]
             [:x      :int]
             [:y      :int]]]]]]]]]]])
+
+(def repub-post
+  [:status-id                 :uuid])
 
 (def media-schema
   "Schema for uploading media files."
@@ -174,113 +177,147 @@
   [db-con resource-id]
   (:location (res-meta/get-resource-by-id db-con resource-id)))
 
-(defn create-microblog
-  [db-con self reply-to {:keys [content]}]
-  (let [[{:keys [mentions resource-cache]} blog]
-        (h/sanitize-microblog-hiccough
-         content
-         false
-         (partial get-user-by-name db-con)
-         (partial get-res-uri db-con))
-
-        {:keys [ap-id]} (users/get-user-by-id db-con self)]
-    (statuses/create-status self {:hiccup blog
-                                  :html (str (hiccup/html blog))}
-                            :microblog :hiccup (join ap-id "./statuses/")
-                            (into #{} (keys resource-cache))
-                            :mentions (into #{} (map :xt/id (vals mentions)))
-                            :reply-to reply-to)))
-
-(defn create-meme
-  [db-con self resource-map reply-to {:keys [base-img caption]}]
-  (if-let [{:keys [location xt/id mime-type]}
-           (res-meta/get-resource-by-id db-con base-img)]
-    (let [{:keys [lines background foreground font-family font-size caption-size]}
-          caption
-
-          [width height resource resource-type]
-          (with-open [resource-file (res-map/open resource-map id)]
-            (case mime-type
-              ("image/png" "image/jpeg")
-              (let [image (img/->buffered-image resource-file)
-                    {:keys [width height]} (img/get-image-metadata image)]
-                [width height image :image])
-
-              "image/gif"
-              (let [{:keys [width height] :as gif}
-                    (gif/get-gif-from-stream resource-file)]
-                [width height gif :gif])
-
-              (bad-request! {:error :invalid-resource-type
-                             :resource-type mime-type
-                             :message "The resource type is invalid"})))
-
-          {:keys [ap-id]} (users/get-user-by-id db-con self)
-
-          hiccup
-          [:meme
-           (into
-            [:caption {:background background
-                       :foreground foreground
-                       :font-family font-family
-                       :font-size font-size}]
-            (for [{:keys [text x y]} lines]
-              [:p {:x x :y y} text]))
-           
-           [:image {:href location}]]
-          
-          [{:keys [mentions]} svg-doc]
-          (h/sanitize-meme-hiccough
-           hiccup
-           false
-           (partial get-user-by-name db-con)
-           width height (* caption-size width))]
-      (statuses/create-status self
-                              {:svg (svg/doc->string svg-doc)}
-                              :meme :svg (join ap-id "./statuses/")
-                              #{base-img}
-                              :mentions (into #{} (map :xt/id (vals mentions)))
-                              :reply-to reply-to))
-    (bad-request! {:error :no-resource
-                   :message "The resource you're trying to use does not exist"})))
-
-(defn create-comic
-  [db-con self reply-to {:keys [content]}]
-  (let [[{:keys [mentions resource-cache]} [comic svg-doc]]
-        (h/sanitize-comic-hiccough
-         content
-         false
-         (partial get-user-by-name db-con)
-         (partial get-res-uri db-con))
-
-        {:keys [ap-id]} (users/get-user-by-id db-con self)]
-    (statuses/create-status
-     self
-     {:hiccup comic
-      :svg (svg/doc->string svg-doc)}
-     :comic :svg
-     (join ap-id "./statuses/")
-     (into #{} (keys resource-cache))
-     :mentions (into #{} (map :xt/id (vals mentions)))
-     :reply-to reply-to)))
+(defn- check-sanitization
+  [o]
+  (if (map? o)
+    (case (:reason o)
+      (:character-count-execeeded :invalid-hiccough)
+      (bad-request! {:error (:reason o)}))
+    o))
 
 (defn create-status!
   [{:keys [xtdb-node endpoint resource-map]}
-   {{{{:keys [type] :as payload} :payload :keys [reply-to] :as body} :body} :parameters
+   {{{{:keys [type] :as payload} :payload :keys [reply-to]} :body} :parameters
     {:keys [user-id]} :session
     :keys [mushin/async?]}]
   (when (and reply-to
              (not (statuses/living-status? xtdb-node type)))
-    (bad-request! {:error :status-does-not-exist
-                   :message "The post you're trying to reply to does not exist"}))
-  (let [status
+    (bad-request! {:error :status-does-not-exist}))
+  (let [{:keys [xt/id ap-id] :as status}
         (case type
-          :comic (create-comic xtdb-node user-id reply-to payload)
-          :microblog (create-microblog xtdb-node user-id reply-to payload)
-          :meme (create-meme xtdb-node user-id resource-map reply-to payload))]
+          :comic 
+          (let [{:keys [content]} payload
+                [{:keys [mentions character-count resource-cache]} [comic svg-doc]]
+                (check-sanitization
+                 (h/sanitize-comic-hiccough
+                  content
+                  false
+                  (partial get-user-by-name xtdb-node)
+                  (partial get-res-uri xtdb-node)))
+                
+
+                {:keys [ap-id]} (users/get-user-by-id xtdb-node user-id)]
+            (statuses/create-status
+             user-id
+             {:hiccup comic
+              :svg (svg/doc->string svg-doc)}
+             :comic :svg
+             (join ap-id "./statuses/")
+             (into #{} (keys resource-cache))
+             character-count
+             :mentions (into #{} (map :xt/id (vals mentions)))
+             :reply-to reply-to))
+
+          :microblog
+          (let [{:keys [content]} payload
+                [{:keys [mentions character-count resource-cache]} blog]
+                (check-sanitization
+                 (h/sanitize-microblog-hiccough
+                  content
+                  false
+                  (partial get-user-by-name xtdb-node)
+                  (partial get-res-uri xtdb-node)))
+
+                {:keys [ap-id]} (users/get-user-by-id xtdb-node user-id)]
+            (statuses/create-status
+             user-id
+             {:hiccup blog
+              :html (str (hiccup/html blog))}
+             :microblog :hiccup (join ap-id "./statuses/")
+             (into #{} (keys resource-cache))
+             character-count
+             :mentions (into #{} (map :xt/id (vals mentions)))
+             :reply-to reply-to))
+
+
+          :meme
+          (if-let [{:keys [location xt/id mime-type]}
+                   (res-meta/get-resource-by-id xtdb-node (:base-img payload))]
+            (let [{:keys [base-img caption]} payload
+                  {:keys [lines background foreground font-family font-size caption-size]}
+                  caption
+
+                  [width height resource resource-type]
+                  (with-open [resource-file (res-map/open resource-map id)]
+                    (case mime-type
+                      ("image/png" "image/jpeg")
+                      (let [image (img/->buffered-image resource-file)
+                            {:keys [width height]} (img/get-image-metadata image)]
+                        [width height image :image])
+
+                      "image/gif"
+                      (let [{:keys [width height] :as gif}
+                            (gif/get-gif-from-stream resource-file)]
+                        [width height gif :gif])
+
+                      (bad-request! {:error :invalid-resource-type
+                                     :resource-type mime-type
+                                     :message "The resource type is invalid"})))
+
+                  {:keys [ap-id]} (users/get-user-by-id xtdb-node user-id)
+
+                  hiccup
+                  [:meme
+                   (into
+                    [:caption {:background background
+                               :foreground foreground
+                               :font-family font-family
+                               :font-size font-size}]
+                    (for [{:keys [text x y]} lines]
+                      [:p {:x x :y y} text]))
+                   
+                   [:image {:href location}]]
+                  
+                  [{:keys [mentions character-count]} svg-doc] 
+                  (check-sanitization
+                   (h/sanitize-meme-hiccough
+                    hiccup
+                    false
+                    (partial get-user-by-name xtdb-node)
+                    width height (* caption-size width)))]
+              (statuses/create-status
+               user-id
+               {:svg (svg/doc->string svg-doc)}
+               :meme
+               :svg
+               (join ap-id "./statuses/")
+               #{base-img}
+               character-count
+               :mentions (into #{} (map :xt/id (vals mentions)))
+               :reply-to reply-to))
+            (bad-request! {:error :no-resource
+                           :message "The resource you're trying to use does not exist"})))
+        transaction [(statuses/insert-status-tx status)
+                     (db-timeline/insert-timeline-doc (db-timeline/create-pub-doc user-id id))]]
     (if async? ; TODO respond with full URI
-      (submit-and-accept xtdb-node (statuses/insert-status-tx status) "TODO")
-      (exec-and-ok xtdb-node (statuses/insert-status-tx status) status))))
+      (submit-and-accept xtdb-node transaction ap-id)
+      (exec-and-ok xtdb-node transaction status))))
+
+
+(defn repub-post!
+  [{:keys [xtdb-node]}
+   {{{:keys [status-id]} :body} :parameters
+    {:keys [user-id]} :session
+    :keys [mushin/async?]}]
+  (let [{:keys [ap-id] :as status}
+        (or (statuses/living-status? xtdb-node type)
+            (bad-request! {:error :status-does-not-exist}))
+
+        tx
+        [(db-timeline/insert-timeline-doc (db-timeline/create-pub-doc user-id status-id))]]
+    (if async?
+      (submit-and-accept xtdb-node tx ap-id)
+      (exec-and-ok xtdb-node tx status))))
 
 (defn add-media!
   [{:keys [resource-map]}
@@ -314,7 +351,8 @@
 (defn get-timeline
   [{:keys [xtdb-node]}
    {{:keys [user-id]} :session}]
-  (xt/q xtdb-node (db-timeline/get-user-events user-id)))
+  (ok {:timeline (db-timeline/get-user-events xtdb-node user-id)}))
+
 
 (defn get-likes
   [{:keys [xtdb-node]}
