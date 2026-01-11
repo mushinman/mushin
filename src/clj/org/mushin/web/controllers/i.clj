@@ -276,7 +276,7 @@
                     (for [{:keys [text x y]} lines]
                       [:p {:x x :y y} text]))
                    
-                   [:image {:href location}]]
+                   [:image {:src location}]]
                   
                   [{:keys [mentions character-count]} svg-doc] 
                   (check-sanitization

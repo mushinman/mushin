@@ -170,12 +170,20 @@
       (when (valid-uri? href)
         [:a {:href href :rel "noopener noreferrer"}]))
 
+    ;; Validate resource.
+    :image
+    (let [{:keys [src]} attrs]
+      (when src
+        [tag (select-keys attrs [:src :alt])]))
+
     ;; Text.
     (:p :h1 :h2 :h3 :h4 :h5 :h6 :code :em :strong)
     (let [{:keys [x y]} attrs]
       (when (and (non-negative? x) (non-negative? y))
         [tag {:x x 
               :y y}]))
+
+    (:meme :caption) [tag]
 
     ;; Default: reject unknown tags.
     nil))
@@ -489,7 +497,7 @@
                           (let [[[mentions tag-character-count] processed-text]
                                 ;; Mentions->links.
                                 (mapv-acc
-                                 (fn [mentions msg-part]
+                                 (fn [[mentions tag-character-count] msg-part]
                                    (cond
                                      (string? msg-part)
                                      [[mentions (+ (grapheme-count msg-part) tag-character-count)]
@@ -553,12 +561,12 @@
                            ;; Any other tag.
                            (svg/create-elem doc just-tag))
 
-
-                         _
+                         hiccup-children
                          (mapv (fn [[hiccup-child svg-child]]
                                  (svg/add-child! elem svg-child)
                                  hiccup-child)
                                (filter some? children))]
+                     
 
                      (when attrs
                        ;; Add attributes to the tag.
@@ -575,9 +583,10 @@
                       (assoc acc
                              :mentions mentions 
                              :character-count character-count)
-                      ;; Hiccup and SVG tag.
+                      ;; Hiccup tuple and SVG tag.
                       [(cond-> [(if ids-and-classes? tag just-tag)]
-                         (not-empty attrs) (conj attrs))
+                         (not-empty attrs) (conj attrs)
+                         (not-empty hiccup-children) (into hiccup-children))
                        elem]])
                    [acc nil]))
 
@@ -654,8 +663,7 @@
                         (cond
                           ;; Check for mentions.
                           (string? child)
-                          (let [;;
-                                [[mentions tag-character-count] processed-text]
+                          (let [[[mentions tag-character-count] processed-text]
                                 ;; Mentions->links.
                                 (mapv-acc
                                  (fn [[mentions tag-character-count] msg-part]
@@ -683,7 +691,6 @@
                                           original-text]))))
                                  [mentions tag-character-count]
                                  (split-by-mentions child))]
-
                             [mentions tag-character-count (into new-children processed-text)])
 
                           ;; Not a string, no possible mentions.
