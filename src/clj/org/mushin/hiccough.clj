@@ -555,6 +555,17 @@
                              (svg/set-attr! svg-elem "preserveAspectRatio" "xMidYMid meet")
                              svg-elem)
 
+                           :image
+                           (let [svg-elem (svg/create-elem doc "image")
+                                 virtual-width 1000
+                                 img-virtual-height (* virtual-width (/ (double image-pixel-height) (double image-pixel-width)))
+                                 caption-virtual-height (* img-virtual-height (/ (double caption-pixel-height) (double image-pixel-height)))]
+                             (svg/set-attr! svg-elem "width" "1000")
+                             (svg/set-attr! svg-elem "height" (str img-virtual-height))
+                             (svg/set-attr! svg-elem "x" "0")
+                             (svg/set-attr! svg-elem "y" (str caption-virtual-height))
+                             svg-elem)
+                           
                            :p
                            (svg/create-elem doc "text")
 
